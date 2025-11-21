@@ -1,0 +1,21 @@
+{
+  "name": "gemini_spreadsheet",
+  "version": "1.0.0",
+  "description": "",
+  "main": "callGenerativeAI.js",
+  "scripts": {
+    "push": "export PATH=\"/opt/homebrew/bin:$PATH\" && clasp push",
+    "pull": "export PATH=\"/opt/homebrew/bin:$PATH\" && clasp pull",
+    "deploy": "export PATH=\"/opt/homebrew/bin:$PATH\" && clasp push && clasp deploy",
+    "watch": "export PATH=\"/opt/homebrew/bin:$PATH\" && clasp push --watch",
+    "status": "export PATH=\"/opt/homebrew/bin:$PATH\" && clasp"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/google-apps-script": "^2.0.7",
+    "typescript": "^5.9.3"
+  }
+}

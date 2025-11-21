@@ -1,0 +1,3 @@
+function myFunction() {
+  // oauth2のスクリプトID ”1B7FSrk5Zi6L1rSxxTDgDEUsPzlukDsi4KGuTMorsTQHhGBzBkMun4iDF”
+}
