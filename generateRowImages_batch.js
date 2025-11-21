@@ -104,13 +104,8 @@ function generateRowImages_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    // --- 5. 画像列の追加（まだ存在しない場合）---
-    const imageColumnIndex = header.length + 1;
-    const imageHeaderName = '生成画像';
-    const existingImageHeader = targetSheet.getRange(1, imageColumnIndex).getValue();
-    if (!existingImageHeader || existingImageHeader !== imageHeaderName) {
-      targetSheet.getRange(1, imageColumnIndex).setValue(imageHeaderName).setFontWeight('bold');
-    }
+    // --- 5. 画像列のヘッダー追加はPROCESS時に行う ---
+    // （毎回新しい列に画像を追加する可能性があるため、ここでは追加しない）
 
     // 完了メッセージ
     ui.alert(
@@ -175,8 +170,14 @@ function generateRowImages_PROCESS() {
     return;
   }
 
-  // 画像を挿入する列
-  const imageColumnIndex = header.length + 1;
+  // 画像を挿入する列（最終列の次）
+  const imageColumnIndex = targetSheet.getLastColumn() + 1;
+
+  // ヘッダー行に「生成画像」を追加（まだ空の場合のみ）
+  const existingHeader = targetSheet.getRange(1, imageColumnIndex).getValue();
+  if (!existingHeader) {
+    targetSheet.getRange(1, imageColumnIndex).setValue('生成画像').setFontWeight('bold');
+  }
 
   // --- 2. 未処理のタスクを検索 ---
   const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 4);
