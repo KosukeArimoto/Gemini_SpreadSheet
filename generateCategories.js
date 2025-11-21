@@ -1100,7 +1100,7 @@ function generateRowImages() {
     ss.toast('行ごとの画像生成を開始します...', '開始', 5);
 
     // --- 1. 設定情報を取得 ---
-    const knowledgeSheet = ss.getSheetByName('カテゴリごとに知見生成');
+    const knowledgeSheet = ss.getSheetByName('カテゴリごとに知見作成');
     if (!knowledgeSheet) {
       throw new Error('シート「カテゴリごとに知見生成」が見つかりません。');
     }
