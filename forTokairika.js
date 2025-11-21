@@ -231,8 +231,11 @@ function generateKnowledge_SETUP() {
       workSheet.autoResizeColumns(1, 3);
     }
 
+    // タブの色をグレーに設定
+    workSheet.setTabColor('#999999');
+
     const resultSheetName = `保全ナレッジ_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
-    
+
     // 「_作業グループ」シートのD1セルに、今回使うシート名をメモとして書き込む
     workSheet.getRange("D1").setValue(resultSheetName);
     Logger.log(`作業シートのD1セルに結果シート名「${resultSheetName}」を書き込みました。`);

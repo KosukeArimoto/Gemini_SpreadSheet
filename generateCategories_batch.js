@@ -245,6 +245,9 @@ function _createGenerateCategoriesWorkSheet(inputSheetName, prompt1, headerJson)
   // L1: これまでの分類結果を保存（継続実行用）
   workSheet.getRange("L1").setValue("");
 
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
+
   workSheet.autoResizeColumn(1);
   return workSheet;
 }
@@ -504,6 +507,9 @@ function _createMergeCategoriesWorkSheet(inputSheetName, categorySheetName, prom
   workSheet.getRange("G1").setValue(prompt2);
   workSheet.getRange("H1").setValue(headerJson);
   workSheet.getRange("I1").setValue(categoryListAsJson);
+
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
 
   workSheet.autoResizeColumn(1);
   return workSheet;
@@ -817,6 +823,9 @@ function _createReviseFeedbackWorkSheet(feedbackSheetName, rawDataSheetName, fee
   workSheet.getRange("F1").setValue(rawDataSheetName);
   workSheet.getRange("G1").setValue(feedbackRule);
 
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
+
   workSheet.autoResizeColumn(1);
   return workSheet;
 }
@@ -1083,6 +1092,9 @@ function _createIllustrationPromptsWorkSheet(feedbackSheetName, prompt4, columnI
   workSheet.getRange("F1").setValue(prompt4);
   workSheet.getRange("G1").setValue(columnIndices);
   workSheet.getRange("H1").setValue(columnsToUse);
+
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
 
   workSheet.autoResizeColumn(1);
   return workSheet;
@@ -1447,6 +1459,9 @@ function _createImagesWorkSheet(imagePromptSheetName, promt5, outputFolderUrl, n
   workSheet.getRange("I1").setValue(okCaseIndex);
   workSheet.getRange("J1").setValue(ngCaseIndex);
   workSheet.getRange("K1").setValue(firstNewColIndex);
+
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
 
   workSheet.autoResizeColumn(1);
   return workSheet;

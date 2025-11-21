@@ -318,6 +318,9 @@ function _createImageWorkSheet(targetSheetName, outputFolderUrl, basePrompt) {
   workSheet.getRange("F1").setValue(outputFolderUrl || "");
   workSheet.getRange("G1").setValue(basePrompt);
 
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
+
   workSheet.autoResizeColumn(1);
   return workSheet;
 }

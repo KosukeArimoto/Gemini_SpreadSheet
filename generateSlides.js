@@ -544,6 +544,9 @@ function _createWorkSheet(presentationId, targetSheetName) {
   workSheet.getRange("D1").setValue(presentationId);
   workSheet.getRange("E1").setValue(targetSheetName);
 
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
+
   workSheet.autoResizeColumn(1);
   return workSheet;
 }
