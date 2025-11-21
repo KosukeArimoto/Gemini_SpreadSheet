@@ -3,9 +3,551 @@
 // ===================================================================
 
 // 作業シート名
+const GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME = "_分類リスト生成作業リスト";
+const MERGE_CATEGORIES_WORK_LIST_SHEET_NAME = "_分類付与作業リスト";
 const REVISE_FEEDBACK_WORK_LIST_SHEET_NAME = "_形式知修正作業リスト";
 const ILLUSTRATION_PROMPTS_WORK_LIST_SHEET_NAME = "_イラストプロンプト作業リスト";
 const CREATE_IMAGES_WORK_LIST_SHEET_NAME = "_画像生成作業リスト";
+
+/**
+ * [SETUP] generateCategories のセットアップ
+ * inputシートのデータを分割してタスクを作成します
+ */
+function generateCategories_SETUP() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    ss.toast('分類リスト生成のセットアップを開始します...', '開始', 10);
+
+    // --- 1. 設定情報を取得 ---
+    const direction = configSheet.getRange('C3').getValue();
+    const prompt1 = promptSheet.getRange(prompt1_pos).getValue();
+
+    if (!direction || !sep || isNaN(sep) || sep <= 0) {
+      throw new Error('configシートのC3(方向), C4(分割数)のいずれかが無効です。');
+    }
+
+    // --- 2. 入力データを読み込む ---
+    const inputSheetName = promptSheet.getRange(inputSheetName_pos).getValue();
+    const inputSheet = ss.getSheetByName(inputSheetName);
+    if (!inputSheet) {
+      throw new Error(`データシート「${inputSheetName}」が見つかりません。`);
+    }
+
+    const allData = inputSheet.getDataRange().getValues();
+    const header = allData[0];
+    const data = allData.slice(1);
+
+    if (data.length === 0) {
+      ui.alert(`${inputSheetName}シートにデータがありません。`);
+      return;
+    }
+
+    // --- 3. 作業シート作成 & タスク書き込み ---
+    const workSheet = _createGenerateCategoriesWorkSheet(inputSheetName, prompt1, JSON.stringify(header));
+    const workListData = [];
+
+    // データをsep件ずつのチャンクに分割してタスク化
+    for (let i = 0; i < data.length; i += sep) {
+      const chunk = data.slice(i, Math.min(i + sep, data.length));
+      workListData.push([
+        `Chunk_${i}_${i + chunk.length - 1}`, // TaskKey
+        JSON.stringify(chunk), // TaskData (チャンクデータをJSON形式)
+        STATUS_EMPTY, // Status
+        `${i + 1}-${i + chunk.length}` // 範囲（参照用）
+      ]);
+    }
+
+    if (workListData.length > 0) {
+      workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
+    }
+
+    _showSetupCompletionDialog();
+
+  } catch (e) {
+    Logger.log(e);
+    ui.alert(`セットアップエラー:\n${e.message}`);
+  }
+}
+
+/**
+ * [PROCESS] generateCategories バッチ処理ワーカー
+ * これまでの分類結果を引き継ぎながら、順次処理します
+ */
+function generateCategories_PROCESS() {
+  const startTime = new Date().getTime();
+
+  const workSheet = ss.getSheetByName(GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME);
+  if (!workSheet || workSheet.getLastRow() < 2) {
+    Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
+    return;
+  }
+
+  // --- 1. 共通設定を作業シートから取得 ---
+  const inputSheetName = workSheet.getRange("E1").getValue();
+  const basePromptTemplate = workSheet.getRange("F1").getValue();
+  const headerJson = workSheet.getRange("G1").getValue();
+
+  // これまでの分類結果を取得（L1セルに保存）
+  let previousResultJsonForPrompt = workSheet.getRange("L1").getValue() || "";
+
+  if (!inputSheetName || !basePromptTemplate) {
+    Logger.log("作業シート E1, F1 に設定情報がありません。SETUPを先に実行してください。");
+    return;
+  }
+
+  const header = JSON.parse(headerJson);
+  const basePrompt = _replacePrompts(basePromptTemplate);
+
+  // --- 2. 未処理のタスクを検索 ---
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 4);
+  const workValues = workRange.getValues();
+
+  let processedCountInThisRun = 0;
+  let currentResult = previousResultJsonForPrompt ? JSON.parse(previousResultJsonForPrompt) : [];
+
+  // --- 3. バッチ処理ループ ---
+  for (let i = 0; i < workValues.length; i++) {
+    const currentStatus = workValues[i][2]; // C列: Status
+
+    if (currentStatus === STATUS_EMPTY) {
+      // 実行時間が上限に近づいたら、自主的に終了
+      const currentTime = new Date().getTime();
+      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
+        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+        // これまでの結果をL1セルに保存
+        workSheet.getRange("L1").setValue(JSON.stringify(currentResult, null, 2));
+        break;
+      }
+
+      const sheetRow = i + 2;
+      const taskKey = workValues[i][0];
+      const range = workValues[i][3];
+
+      try {
+        // ステータスを「処理中」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
+
+        // タスクデータを解析
+        const chunk = JSON.parse(workValues[i][1]);
+
+        Logger.log(`[${processedCountInThisRun + 1}] データ範囲 ${range} を分類中...`);
+
+        // CSVに変換
+        const chunkWithHeader = [header].concat(chunk);
+        const csvChunk = chunkWithHeader.map(row =>
+          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // プロンプトを構築
+        let prompt = basePrompt;
+        if (previousResultJsonForPrompt) {
+          prompt += `
+# 前回までの分類結果の概要
+以下は前回までに分類した結果です。この分類基準や粒度を参考にし、必要であれば新たな分類の追加や既存分類の再編をおこなってください。
+${previousResultJsonForPrompt}
+`;
+        }
+        prompt += `
+# 今回分類するデータ (CSV形式)
+---
+${csvChunk}
+---
+
+上記データの分析結果をJSON配列形式で出力してください。`;
+
+        // APIを呼び出し
+        const resultText = callGemini_(prompt);
+        const jsonStringMatch = resultText.match(/```json\s*([\s\S]*?)\s*```/);
+        const cleanedJsonString = jsonStringMatch ? jsonStringMatch[1] : resultText;
+        currentResult = JSON.parse(cleanedJsonString);
+
+        // 次のプロンプト用に更新
+        previousResultJsonForPrompt = JSON.stringify(currentResult, null, 2);
+
+        // 結果を作業シートに一時保存（E列以降）
+        workSheet.getRange(sheetRow, 5).setValue(JSON.stringify(currentResult));
+
+        // 待機（API制限対策）
+        Utilities.sleep(1000);
+
+        // ステータスを「完了」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
+        processedCountInThisRun++;
+        SpreadsheetApp.flush();
+
+      } catch (e) {
+        Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
+        workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+      }
+    }
+  }
+
+  Logger.log(`今回の実行で ${processedCountInThisRun} 件のタスクを処理しました。`);
+  SpreadsheetApp.flush();
+
+  // --- 4. 完了チェック ---
+  const lastRow = workSheet.getLastRow();
+  let remainingTasks = 0;
+  if (lastRow >= 2) {
+    const newStatusValues = workSheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    remainingTasks = newStatusValues.filter(
+      row => row[0] === STATUS_EMPTY || row[0] === STATUS_PROCESSING
+    ).length;
+  }
+
+  if (remainingTasks === 0) {
+    Logger.log("✅ すべてのタスクが完了しました！");
+
+    // 完了時に最終結果を新しいシートに出力
+    _outputGenerateCategoriesResults(workSheet, currentResult);
+
+    // L1セルの一時データをクリア
+    workSheet.getRange("L1").clearContent();
+
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'すべての分類リスト生成が完了し、結果を出力しました。',
+      '✅ 完了',
+      10
+    );
+  } else {
+    // 未完了の場合、現在の結果をL1に保存
+    workSheet.getRange("L1").setValue(JSON.stringify(currentResult, null, 2));
+
+    Logger.log(`残りタスク数: ${remainingTasks}`);
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      `処理中... 残り ${remainingTasks} 件`,
+      '分類リスト生成中',
+      5
+    );
+  }
+}
+
+/**
+ * [ヘルパー関数] generateCategories用の作業シートを作成
+ */
+function _createGenerateCategoriesWorkSheet(inputSheetName, prompt1, headerJson) {
+  let workSheet = ss.getSheetByName(GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME);
+  if (workSheet) {
+    workSheet.clear();
+  } else {
+    workSheet = ss.insertSheet(GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME, 0);
+  }
+
+  const workHeader = ["TaskKey", "TaskData", "Status", "Range", "Result"];
+  workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
+
+  // E1, F1, G1 に実行時に必要な情報を保存
+  workSheet.getRange("E1").setValue(inputSheetName);
+  workSheet.getRange("F1").setValue(prompt1);
+  workSheet.getRange("G1").setValue(headerJson);
+
+  // L1: これまでの分類結果を保存（継続実行用）
+  workSheet.getRange("L1").setValue("");
+
+  workSheet.autoResizeColumn(1);
+  return workSheet;
+}
+
+/**
+ * [ヘルパー関数] 完了時に分類結果を新しいシートに出力
+ */
+function _outputGenerateCategoriesResults(workSheet, result) {
+  if (!result || result.length === 0) {
+    Logger.log("出力する分類結果がありません。");
+    return;
+  }
+
+  // 重複削除処理
+  const uniqueCategoriesMap = new Map();
+  result.forEach(item => {
+    const key = `${item.major_category}_${item.minor_category}`;
+    if (!uniqueCategoriesMap.has(key)) {
+      uniqueCategoriesMap.set(key, item);
+    }
+  });
+
+  const uniqueCategories = Array.from(uniqueCategoriesMap.values());
+
+  // 新しいシートに出力
+  const outputSheetName = `分類リスト_${Utilities.formatDate(new Date(), 'JST', 'yyyyMMdd_HHmmss')}`;
+  const outputSheet = ss.insertSheet(outputSheetName, ss.getNumSheets() + 1);
+
+  const outputHeader = Object.keys(uniqueCategories[0]);
+  const outputData = uniqueCategories.map(item => outputHeader.map(key => item[key]));
+
+  outputSheet.getRange(1, 1, 1, outputHeader.length).setValues([outputHeader]).setFontWeight('bold');
+  outputSheet.getRange(2, 1, outputData.length, outputData[0].length).setValues(outputData);
+  outputSheet.autoResizeColumns(1, outputHeader.length);
+
+  Logger.log(`シート「${outputSheetName}」に分類リストを出力しました。`);
+}
+
+/**
+ * [SETUP] mergeCategories のセットアップ
+ * 元データと分類リストを基に、分類付与タスクを作成します
+ */
+function mergeCategories_SETUP() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    ss.toast('分類付与のセットアップを開始します...', '開始', 10);
+
+    // --- 1. 設定情報を取得 ---
+    const inputSheetName = promptSheet.getRange(inputSheetName_pos).getValue();
+    const categorySheetName = promptSheet.getRange(categorySheetName_pos).getValue();
+    const prompt2 = promptSheet.getRange(prompt2_pos).getValue();
+
+    const inputSheet = ss.getSheetByName(inputSheetName);
+    const categorySheet = ss.getSheetByName(categorySheetName);
+
+    if (!inputSheet) throw new Error(`入力シート「${inputSheetName}」が見つかりません。`);
+    if (!categorySheet) throw new Error(`分類シート「${categorySheetName}」が見つかりません。`);
+
+    // --- 2. 入力データを読み込む ---
+    const allOriginalData = inputSheet.getDataRange().getValues();
+    const originalHeader = allOriginalData[0];
+    const originalData = allOriginalData.slice(1);
+
+    if (originalData.length === 0) {
+      ui.alert('入力シートにデータがありません。');
+      return;
+    }
+
+    // 分類リストを読み込む
+    const categoryData = categorySheet.getDataRange().getValues();
+    categoryData.shift(); // ヘッダーを除外
+    const categoryListAsJson = JSON.stringify(
+      categoryData.map(row => ({ major_category: row[0], minor_category: row[1] })),
+      null, 2
+    );
+
+    // --- 3. 作業シート作成 & タスク書き込み ---
+    const workSheet = _createMergeCategoriesWorkSheet(inputSheetName, categorySheetName, prompt2, JSON.stringify(originalHeader), categoryListAsJson);
+    const workListData = [];
+
+    // データをsep件ずつのチャンクに分割してタスク化
+    for (let i = 0; i < originalData.length; i += sep) {
+      const chunk = originalData.slice(i, Math.min(i + sep, originalData.length));
+      workListData.push([
+        `Chunk_${i}_${i + chunk.length - 1}`, // TaskKey
+        JSON.stringify(chunk), // TaskData
+        STATUS_EMPTY, // Status
+        `${i + 1}-${i + chunk.length}` // 範囲
+      ]);
+    }
+
+    if (workListData.length > 0) {
+      workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
+    }
+
+    _showSetupCompletionDialog();
+
+  } catch (e) {
+    Logger.log(e);
+    ui.alert(`セットアップエラー:\n${e.message}`);
+  }
+}
+
+/**
+ * [PROCESS] mergeCategories バッチ処理ワーカー
+ */
+function mergeCategories_PROCESS() {
+  const startTime = new Date().getTime();
+
+  const workSheet = ss.getSheetByName(MERGE_CATEGORIES_WORK_LIST_SHEET_NAME);
+  if (!workSheet || workSheet.getLastRow() < 2) {
+    Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
+    return;
+  }
+
+  // --- 1. 共通設定を作業シートから取得 ---
+  const inputSheetName = workSheet.getRange("E1").getValue();
+  const categorySheetName = workSheet.getRange("F1").getValue();
+  const basePromptTemplate = workSheet.getRange("G1").getValue();
+  const headerJson = workSheet.getRange("H1").getValue();
+  const categoryListAsJson = workSheet.getRange("I1").getValue();
+
+  if (!inputSheetName || !basePromptTemplate) {
+    Logger.log("作業シート E1, G1 に設定情報がありません。SETUPを先に実行してください。");
+    return;
+  }
+
+  const header = JSON.parse(headerJson);
+  const basePrompt = _replacePrompts(basePromptTemplate);
+
+  // --- 2. 未処理のタスクを検索 ---
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 4);
+  const workValues = workRange.getValues();
+
+  let processedCountInThisRun = 0;
+
+  // --- 3. バッチ処理ループ ---
+  for (let i = 0; i < workValues.length; i++) {
+    const currentStatus = workValues[i][2]; // C列: Status
+
+    if (currentStatus === STATUS_EMPTY) {
+      // 実行時間が上限に近づいたら、自主的に終了
+      const currentTime = new Date().getTime();
+      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
+        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+        break;
+      }
+
+      const sheetRow = i + 2;
+      const taskKey = workValues[i][0];
+      const range = workValues[i][3];
+
+      try {
+        // ステータスを「処理中」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
+
+        // タスクデータを解析
+        const chunk = JSON.parse(workValues[i][1]);
+
+        Logger.log(`[${processedCountInThisRun + 1}] データ範囲 ${range} に分類を付与中...`);
+
+        // CSVに変換
+        const csvChunk = [header].concat(chunk).map(row =>
+          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // プロンプトを構築
+        let prompt = basePrompt;
+        prompt += `
+# 分類カテゴリのリスト (JSON形式)
+利用可能な分類は以下の通りです。このリストの中から最適なものを選択してください。
+---
+${categoryListAsJson}
+---
+
+# 今回割り当てる入力データ (CSV形式)
+以下の各データ項目に対して、上記のリストから最も適切と思われる「大分類」と「中分類」を割り当ててください。
+---
+${csvChunk}
+---`;
+
+        // APIを呼び出し
+        const resultText = callGemini_(prompt);
+        const cleanedJsonString = resultText.match(/```json\s*([\s\S]*?)\s*```/)?.[1] || resultText;
+        const newResults = JSON.parse(cleanedJsonString);
+
+        // 結果を作業シートに保存（E列）
+        workSheet.getRange(sheetRow, 5).setValue(JSON.stringify(newResults));
+
+        // 待機（API制限対策）
+        Utilities.sleep(1000);
+
+        // ステータスを「完了」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
+        processedCountInThisRun++;
+        SpreadsheetApp.flush();
+
+      } catch (e) {
+        Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
+        workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+      }
+    }
+  }
+
+  Logger.log(`今回の実行で ${processedCountInThisRun} 件のタスクを処理しました。`);
+  SpreadsheetApp.flush();
+
+  // --- 4. 完了チェック ---
+  const lastRow = workSheet.getLastRow();
+  let remainingTasks = 0;
+  if (lastRow >= 2) {
+    const newStatusValues = workSheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    remainingTasks = newStatusValues.filter(
+      row => row[0] === STATUS_EMPTY || row[0] === STATUS_PROCESSING
+    ).length;
+  }
+
+  if (remainingTasks === 0) {
+    Logger.log("✅ すべてのタスクが完了しました！");
+
+    // 完了時に結果を新しいシートに出力
+    _outputMergeCategoriesResults(workSheet, inputSheetName);
+
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'すべての分類付与が完了し、結果を出力しました。',
+      '✅ 完了',
+      10
+    );
+  } else {
+    Logger.log(`残りタスク数: ${remainingTasks}`);
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      `処理中... 残り ${remainingTasks} 件`,
+      '分類付与中',
+      5
+    );
+  }
+}
+
+/**
+ * [ヘルパー関数] mergeCategories用の作業シートを作成
+ */
+function _createMergeCategoriesWorkSheet(inputSheetName, categorySheetName, prompt2, headerJson, categoryListAsJson) {
+  let workSheet = ss.getSheetByName(MERGE_CATEGORIES_WORK_LIST_SHEET_NAME);
+  if (workSheet) {
+    workSheet.clear();
+  } else {
+    workSheet = ss.insertSheet(MERGE_CATEGORIES_WORK_LIST_SHEET_NAME, 0);
+  }
+
+  const workHeader = ["TaskKey", "TaskData", "Status", "Range", "Result"];
+  workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
+
+  // E1〜I1 に実行時に必要な情報を保存
+  workSheet.getRange("E1").setValue(inputSheetName);
+  workSheet.getRange("F1").setValue(categorySheetName);
+  workSheet.getRange("G1").setValue(prompt2);
+  workSheet.getRange("H1").setValue(headerJson);
+  workSheet.getRange("I1").setValue(categoryListAsJson);
+
+  workSheet.autoResizeColumn(1);
+  return workSheet;
+}
+
+/**
+ * [ヘルパー関数] 完了時に分類付与結果を新しいシートに出力
+ */
+function _outputMergeCategoriesResults(workSheet, inputSheetName) {
+  const lastRow = workSheet.getLastRow();
+  if (lastRow < 2) return;
+
+  // 結果データを読み込む（E列）
+  const resultsRange = workSheet.getRange(2, 5, lastRow - 1, 1);
+  const resultsData = resultsRange.getValues();
+  const statusRange = workSheet.getRange(2, 3, lastRow - 1, 1).getValues();
+
+  // 完了したデータのみを結合
+  let finalMergedData = [];
+  for (let i = 0; i < resultsData.length; i++) {
+    if (statusRange[i][0] === STATUS_DONE && resultsData[i][0]) {
+      const chunkResults = JSON.parse(resultsData[i][0]);
+      finalMergedData = finalMergedData.concat(chunkResults);
+    }
+  }
+
+  if (finalMergedData.length === 0) {
+    Logger.log("出力するデータがありません。");
+    return;
+  }
+
+  // 新しいシートに出力
+  const outputSheetName = `分類付与済_${Utilities.formatDate(new Date(), 'JST', 'yyyyMMdd_HHmmss')}`;
+  const outputSheet = ss.insertSheet(outputSheetName, ss.getNumSheets() + 1);
+
+  const finalHeader = Object.keys(finalMergedData[0]);
+  const outputData = finalMergedData.map(item => finalHeader.map(key => item[key]));
+
+  outputSheet.getRange(1, 1, 1, finalHeader.length).setValues([finalHeader]).setFontWeight('bold');
+  outputSheet.getRange(2, 1, outputData.length, outputData[0].length).setValues(outputData);
+  outputSheet.autoResizeColumns(1, finalHeader.length);
+
+  Logger.log(`シート「${outputSheetName}」に分類付与済データを出力しました。`);
+}
 
 /**
  * [SETUP] reviseFeedback のセットアップ

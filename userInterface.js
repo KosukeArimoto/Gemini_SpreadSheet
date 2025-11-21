@@ -11,8 +11,10 @@ function onOpen() {
 
     // --- データ整理・分類フェーズ ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('📊 分類・整理')
-      .addItem('① 分類リストを生成 (prompt1)', 'generateCategories')
-      .addItem('② データに分類を付与 (prompt2)', 'mergeCategories'))
+      .addItem('①-1 分類リストを生成 (セットアップ)', 'generateCategories_SETUP')
+      .addItem('①-2 分類リストを生成 (実行)', 'generateCategories_PROCESS')
+      .addItem('②-1 データに分類を付与 (セットアップ)', 'mergeCategories_SETUP')
+      .addItem('②-2 データに分類を付与 (実行)', 'mergeCategories_PROCESS'))
     .addSeparator()
 
     // --- 設計フィードバックフェーズ ---
