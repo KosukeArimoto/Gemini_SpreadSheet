@@ -5,6 +5,7 @@
 // 作業シート名
 const GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME = "_分類リスト生成作業リスト";
 const MERGE_CATEGORIES_WORK_LIST_SHEET_NAME = "_分類付与作業リスト";
+const GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME = "_設計FB生成作業リスト";
 const REVISE_FEEDBACK_WORK_LIST_SHEET_NAME = "_形式知修正作業リスト";
 const ILLUSTRATION_PROMPTS_WORK_LIST_SHEET_NAME = "_イラストプロンプト作業リスト";
 const CREATE_IMAGES_WORK_LIST_SHEET_NAME = "_画像生成作業リスト";
@@ -553,6 +554,316 @@ function _outputMergeCategoriesResults(workSheet, inputSheetName) {
   outputSheet.autoResizeColumns(1, finalHeader.length);
 
   Logger.log(`シート「${outputSheetName}」に分類付与済データを出力しました。`);
+}
+
+/**
+ * [SETUP] generateFeedback のセットアップ
+ * カテゴリごとにグループ化してタスクを作成します
+ */
+function generateFeedback_SETUP() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    ss.toast('設計FB生成のセットアップを開始します...', '開始', 10);
+
+    // --- 1. 設定情報を取得 ---
+    const inputSheetName = promptSheet.getRange(outputSheetName_pos).getValue();
+    const basePrompt = promptSheet.getRange(prompt3_pos).getValue();
+    const inputCategory = configSheet.getRange('C5').getValue();
+
+    if (!inputSheetName || !basePrompt) {
+      throw new Error(`promptシートの${inputSheetName}(入力シート名)またはprompt3(プロンプト)が空です。`);
+    }
+
+    // --- 2. 入力データを読み込む ---
+    const inputSheet = ss.getSheetByName(inputSheetName);
+    if (!inputSheet) throw new Error(`入力シート「${inputSheetName}」が見つかりません。`);
+    const allData = inputSheet.getDataRange().getValues();
+    const header = allData[0];
+    const data = allData.slice(1);
+
+    if (data.length === 0) {
+      throw new Error(`入力シート「${inputSheetName}」にデータがありません。`);
+    }
+
+    // --- 3. 指定された列でデータをグループ化 ---
+    const categoryIndex = header.indexOf(inputCategory);
+    if (categoryIndex === -1) {
+      throw new Error(`入力シートのヘッダーに「${inputCategory}」列が見つかりません。`);
+    }
+    const groupedData = {};
+    data.forEach(row => {
+      const category = row[categoryIndex];
+      if (!groupedData[category]) {
+        groupedData[category] = [];
+      }
+      groupedData[category].push(row);
+    });
+
+    // --- 4. 作業シート作成 & タスク書き込み ---
+    const workSheet = _createGenerateFeedbackWorkSheet(inputSheetName, basePrompt, JSON.stringify(header));
+    const workListData = [];
+
+    const categories = Object.keys(groupedData);
+    categories.forEach((categoryName, index) => {
+      const chunk = groupedData[categoryName];
+      workListData.push([
+        `Category_${index}_${categoryName}`, // TaskKey
+        JSON.stringify(chunk), // TaskData (カテゴリのデータ)
+        STATUS_EMPTY, // Status
+        categoryName // カテゴリ名（参照用）
+      ]);
+    });
+
+    if (workListData.length > 0) {
+      workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
+    }
+
+    _showSetupCompletionDialog();
+
+  } catch (e) {
+    Logger.log(e);
+    ui.alert(`セットアップエラー:\n${e.message}`);
+  }
+}
+
+/**
+ * [PROCESS] generateFeedback バッチ処理ワーカー
+ * カテゴリごとに処理し、前回までのフィードバック結果を引き継ぎます
+ */
+function generateFeedback_PROCESS() {
+  const startTime = new Date().getTime();
+
+  const workSheet = ss.getSheetByName(GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME);
+  if (!workSheet || workSheet.getLastRow() < 2) {
+    Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
+    return;
+  }
+
+  // --- 1. 共通設定を作業シートから取得 ---
+  const inputSheetName = workSheet.getRange("E1").getValue();
+  const basePromptTemplate = workSheet.getRange("F1").getValue();
+  const headerJson = workSheet.getRange("G1").getValue();
+
+  // これまでのフィードバック結果を取得（L1セルに保存）
+  let previousFeedbackForPrompt = workSheet.getRange("L1").getValue() || "";
+
+  if (!inputSheetName || !basePromptTemplate) {
+    Logger.log("作業シート E1, F1 に設定情報がありません。SETUPを先に実行してください。");
+    return;
+  }
+
+  const header = JSON.parse(headerJson);
+  const basePrompt = _replacePrompts(basePromptTemplate);
+
+  // --- 2. 未処理のタスクを検索 ---
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 4);
+  const workValues = workRange.getValues();
+
+  let processedCountInThisRun = 0;
+  let combinedMarkdownResponse = previousFeedbackForPrompt;
+
+  // --- 3. バッチ処理ループ ---
+  for (let i = 0; i < workValues.length; i++) {
+    const currentStatus = workValues[i][2]; // C列: Status
+
+    if (currentStatus === STATUS_EMPTY) {
+      // 実行時間が上限に近づいたら、自主的に終了
+      const currentTime = new Date().getTime();
+      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
+        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+        // これまでの結果をL1セルに保存
+        workSheet.getRange("L1").setValue(combinedMarkdownResponse);
+        break;
+      }
+
+      const sheetRow = i + 2;
+      const taskKey = workValues[i][0];
+      const categoryName = workValues[i][3];
+
+      try {
+        // ステータスを「処理中」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
+
+        // タスクデータを解析
+        const chunk = JSON.parse(workValues[i][1]);
+
+        Logger.log(`[${processedCountInThisRun + 1}] カテゴリ「${categoryName}」を分析中...`);
+
+        // CSVに変換
+        const csvChunk = [header].concat(chunk).map(row =>
+          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // カテゴリ内で複数回API呼び出しを行う可能性がある
+        let continueProcessingCategory = true;
+        let batchNumber = 1;
+        let categoryMarkdown = "";
+
+        while (continueProcessingCategory) {
+          // 時間チェック
+          const currentTime = new Date().getTime();
+          if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
+            Logger.log(`時間上限に達したため、カテゴリ「${categoryName}」の処理を中断します。`);
+            // このカテゴリは未完了のまま保存
+            workSheet.getRange("L1").setValue(combinedMarkdownResponse);
+            throw new Error("時間制限により中断");
+          }
+
+          let prompt = basePrompt;
+          if (previousFeedbackForPrompt) {
+            prompt += `\n\n---
+# 🔴 重要：既に出力済みのフィードバック
+以下は既に出力したフィードバックです。
+新たなフィードバックはこのフィードバックに追加する形式で出力してください。
+**「# 🔁 重複防止条件」**のルールに厳密に従い、これらと重複する内容は絶対に出力しないでください。
+${previousFeedbackForPrompt}`;
+          }
+          prompt += `\n\n---
+# 出力形式の追加説明
+ヘッダー自体は出力しないでください。
+
+# 今回分析する入力データ (CSV形式)
+${csvChunk}`;
+
+          const resultText = callGemini_(prompt);
+          categoryMarkdown += resultText + "\n";
+          combinedMarkdownResponse += resultText + "\n";
+          previousFeedbackForPrompt += resultText + "\n";
+          batchNumber++;
+
+          const newFeedbackData = parseMarkdownTable_(resultText);
+          if (newFeedbackData.length <= 1 || resultText.includes('続きなし')) {
+            continueProcessingCategory = false;
+          }
+
+          Utilities.sleep(1000);
+        }
+
+        // カテゴリの処理完了、結果を作業シートに保存（E列）
+        workSheet.getRange(sheetRow, 5).setValue(categoryMarkdown);
+
+        // ステータスを「完了」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
+        processedCountInThisRun++;
+        SpreadsheetApp.flush();
+
+      } catch (e) {
+        Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
+        workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+        // エラーが発生した場合、現在までの結果を保存
+        workSheet.getRange("L1").setValue(combinedMarkdownResponse);
+        break; // エラー発生時は処理を中断
+      }
+    }
+  }
+
+  Logger.log(`今回の実行で ${processedCountInThisRun} 件のタスクを処理しました。`);
+  SpreadsheetApp.flush();
+
+  // --- 4. 完了チェック ---
+  const lastRow = workSheet.getLastRow();
+  let remainingTasks = 0;
+  if (lastRow >= 2) {
+    const newStatusValues = workSheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    remainingTasks = newStatusValues.filter(
+      row => row[0] === STATUS_EMPTY || row[0] === STATUS_PROCESSING
+    ).length;
+  }
+
+  if (remainingTasks === 0) {
+    Logger.log("✅ すべてのタスクが完了しました！");
+
+    // 完了時に最終結果を新しいシートに出力
+    _outputGenerateFeedbackResults(workSheet, combinedMarkdownResponse);
+
+    // L1セルの一時データをクリア
+    workSheet.getRange("L1").clearContent();
+
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'すべての設計FB生成が完了し、結果を出力しました。',
+      '✅ 完了',
+      10
+    );
+  } else {
+    // 未完了の場合、現在の結果をL1に保存
+    workSheet.getRange("L1").setValue(combinedMarkdownResponse);
+
+    Logger.log(`残りタスク数: ${remainingTasks}`);
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      `処理中... 残り ${remainingTasks} 件`,
+      '設計FB生成中',
+      5
+    );
+  }
+}
+
+/**
+ * [ヘルパー関数] generateFeedback用の作業シートを作成
+ */
+function _createGenerateFeedbackWorkSheet(inputSheetName, prompt3, headerJson) {
+  let workSheet = ss.getSheetByName(GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME);
+  if (workSheet) {
+    workSheet.clear();
+  } else {
+    workSheet = ss.insertSheet(GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME, 0);
+  }
+
+  const workHeader = ["TaskKey", "TaskData", "Status", "Category", "Result"];
+  workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
+
+  // E1, F1, G1 に実行時に必要な情報を保存
+  workSheet.getRange("E1").setValue(inputSheetName);
+  workSheet.getRange("F1").setValue(prompt3);
+  workSheet.getRange("G1").setValue(headerJson);
+
+  // L1: これまでのフィードバック結果を保存（継続実行用）
+  workSheet.getRange("L1").setValue("");
+
+  // タブの色をグレーに設定
+  workSheet.setTabColor('#999999');
+
+  workSheet.autoResizeColumn(1);
+  return workSheet;
+}
+
+/**
+ * [ヘルパー関数] 完了時に設計FB結果を新しいシートに出力
+ */
+function _outputGenerateFeedbackResults(workSheet, combinedMarkdownResponse) {
+  if (!combinedMarkdownResponse) {
+    Logger.log("出力する設計FB結果がありません。");
+    return;
+  }
+
+  // Markdownテーブルをパース
+  const feedbackData = parseMarkdownTable_(combinedMarkdownResponse);
+
+  if (feedbackData.length === 0) {
+    Logger.log("Markdownテーブルのパースに失敗しました。");
+    return;
+  }
+
+  // 重複したヘッダー行を削除
+  const headerRow = feedbackData[0];
+  const headerString = headerRow.join('|');
+  const uniqueHeaderData = feedbackData.filter((row, index) => {
+    return index === 0 || row.join('|') !== headerString;
+  });
+
+  // 新しいシートに出力
+  const outputSheetName = `設計FB_${Utilities.formatDate(new Date(), 'JST', 'yyyyMMdd_HHmmss')}`;
+  const outputSheet = ss.insertSheet(outputSheetName, ss.getNumSheets() + 1);
+
+  outputSheet.getRange(1, 1, uniqueHeaderData.length, uniqueHeaderData[0].length)
+    .setValues(uniqueHeaderData)
+    .setWrap(true)
+    .setVerticalAlignment('top');
+
+  outputSheet.getRange(1, 1, 1, uniqueHeaderData[0].length).setFontWeight('bold');
+  outputSheet.autoResizeColumns(1, uniqueHeaderData[0].length);
+
+  Logger.log(`シート「${outputSheetName}」に設計FBを出力しました。`);
 }
 
 /**

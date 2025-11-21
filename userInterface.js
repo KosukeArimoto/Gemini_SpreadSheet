@@ -19,7 +19,8 @@ function onOpen() {
 
     // --- 設計フィードバックフェーズ ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('📝 設計FB')
-      .addItem('③ 設計FBを生成 (prompt3)', 'generateFeedback')
+      .addItem('③-1 設計FBを生成 (セットアップ)', 'generateFeedback_SETUP')
+      .addItem('③-2 設計FBを生成 (実行)', 'generateFeedback_PROCESS')
       .addItem('④-1 FBを個別に修正 (セットアップ)', 'reviseFeedback_SETUP')
       .addItem('④-2 FBを個別に修正 (実行)', 'reviseFeedback_PROCESS'))
     .addSeparator()
