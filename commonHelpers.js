@@ -199,3 +199,78 @@ function stopTriggers_(functionName) {
     }
   }
 }
+
+/**
+ * 手動実行かトリガー実行かを判定する
+ * @return {boolean} - 手動実行の場合true、トリガー実行の場合false
+ */
+function _isManualExecution() {
+  try {
+    const effectiveUser = Session.getEffectiveUser().getEmail();
+    const activeUser = Session.getActiveUser().getEmail();
+
+    // 両方が一致し、かつ空でない = スクリプトエディタやスプレッドシートから手動実行
+    return effectiveUser === activeUser && effectiveUser !== '';
+  } catch (e) {
+    // エラーが発生した場合は手動実行と見なす（安全側に倒す）
+    return true;
+  }
+}
+
+/**
+ * 進捗表示（手動実行時のみtoast表示、常にログ出力）
+ * @param {string} message - 表示するメッセージ
+ * @param {string} title - toastのタイトル（デフォルト: '処理中'）
+ * @param {number} duration - toast表示時間（秒、デフォルト: 3）
+ */
+function _showProgress(message, title = '処理中', duration = 3) {
+  if (_isManualExecution()) {
+    try {
+      SpreadsheetApp.getActiveSpreadsheet().toast(message, title, duration);
+    } catch (e) {
+      // toast表示に失敗してもログには出力
+      Logger.log(`[Toast表示失敗] ${title}: ${message}`);
+    }
+  }
+  Logger.log(`${title}: ${message}`);
+}
+
+/**
+ * 動的タイムアウトチェック：次のタスクを実行しても30分制限内に収まるかを判定する
+ * @param {number} startTime - 処理開始時刻（ミリ秒）
+ * @param {number[]} taskExecutionTimes - これまでのタスク実行時間の配列（ミリ秒）
+ * @param {number} safetyMargin - 安全係数（デフォルト: 1.5）
+ * @return {boolean} - 次のタスクを実行可能ならtrue、停止すべきならfalse
+ */
+function _shouldContinueProcessing(startTime, taskExecutionTimes, safetyMargin = 1.5) {
+  const MAX_EXECUTION_TIME_MS = 30 * 60 * 1000; // 30分（ミリ秒）
+  const currentTime = new Date().getTime();
+  const elapsedTime = currentTime - startTime;
+  const remainingTime = MAX_EXECUTION_TIME_MS - elapsedTime;
+
+  // タスク実行履歴がない場合は、時間が十分残っているかだけを確認
+  if (taskExecutionTimes.length === 0) {
+    // 最初のタスクは最低5分の余裕があれば実行
+    return remainingTime > 5 * 60 * 1000;
+  }
+
+  // 平均実行時間を計算
+  const totalTime = taskExecutionTimes.reduce((sum, time) => sum + time, 0);
+  const avgTaskTime = totalTime / taskExecutionTimes.length;
+
+  // 必要な時間 = 平均実行時間 × 安全係数
+  const requiredTime = avgTaskTime * safetyMargin;
+
+  // 残り時間が必要な時間より多ければ続行可能
+  const canContinue = remainingTime >= requiredTime;
+
+  if (!canContinue) {
+    Logger.log(`動的タイムアウト: 次のタスク実行不可と判断`);
+    Logger.log(`  - 経過時間: ${(elapsedTime / 60000).toFixed(2)}分`);
+    Logger.log(`  - 残り時間: ${(remainingTime / 60000).toFixed(2)}分`);
+    Logger.log(`  - 平均タスク時間: ${(avgTaskTime / 1000).toFixed(2)}秒`);
+    Logger.log(`  - 必要時間（安全係数${safetyMargin}）: ${(requiredTime / 60000).toFixed(2)}分`);
+  }
+
+  return canContinue;
+}

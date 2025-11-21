@@ -77,12 +77,15 @@ function generateCategories_SETUP() {
  */
 function generateCategories_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
     Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
     return;
   }
+
+  _showProgress('分類リスト生成処理を開始します...', '📊 分類生成', 3);
 
   // --- 1. 共通設定を作業シートから取得 ---
   const inputSheetName = workSheet.getRange("E1").getValue();
@@ -112,15 +115,15 @@ function generateCategories_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         // これまでの結果をL1セルに保存
         workSheet.getRange("L1").setValue(JSON.stringify(currentResult, null, 2));
         break;
       }
 
+      const taskStartTime = new Date().getTime(); // このタスクの開始時刻
       const sheetRow = i + 2;
       const taskKey = workValues[i][0];
       const range = workValues[i][3];
@@ -175,11 +178,33 @@ ${csvChunk}
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
+        // 進捗表示（手動実行時のみ）
+        if (processedCountInThisRun % 3 === 0) {
+          const totalTasks = workValues.length;
+          _showProgress(
+            `${processedCountInThisRun} / ${totalTasks} 件完了`,
+            '📊 分類生成中',
+            2
+          );
+        }
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録（次回の予測精度向上のため）
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
       }
     }
   }
@@ -206,7 +231,7 @@ ${csvChunk}
     // L1セルの一時データをクリア
     workSheet.getRange("L1").clearContent();
 
-    SpreadsheetApp.getActiveSpreadsheet().toast(
+    _showProgress(
       'すべての分類リスト生成が完了し、結果を出力しました。',
       '✅ 完了',
       10
@@ -216,9 +241,9 @@ ${csvChunk}
     workSheet.getRange("L1").setValue(JSON.stringify(currentResult, null, 2));
 
     Logger.log(`残りタスク数: ${remainingTasks}`);
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      `処理中... 残り ${remainingTasks} 件`,
-      '分類リスト生成中',
+    _showProgress(
+      `今回 ${processedCountInThisRun} 件処理。残り ${remainingTasks} 件`,
+      '⏸️ 一時停止',
       5
     );
   }
@@ -358,6 +383,7 @@ function mergeCategories_SETUP() {
  */
 function mergeCategories_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(MERGE_CATEGORIES_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
@@ -391,13 +417,13 @@ function mergeCategories_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         break;
       }
 
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2;
       const taskKey = workValues[i][0];
       const range = workValues[i][3];
@@ -445,11 +471,23 @@ ${csvChunk}
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
       }
     }
   }
@@ -496,7 +534,7 @@ function _createMergeCategoriesWorkSheet(inputSheetName, categorySheetName, prom
   if (workSheet) {
     workSheet.clear();
   } else {
-    workSheet = ss.insertSheet(MERGE_CATEGORIES_WORK_LIST_SHEET_NAME, 0);
+    workSheet = ss.insertSheet(MERGE_CATEGORIES_WORK_LIST_SHEET_NAME, ss.getNumSheets() + 1);
   }
 
   const workHeader = ["TaskKey", "TaskData", "Status", "Range", "Result"];
@@ -633,6 +671,7 @@ function generateFeedback_SETUP() {
  */
 function generateFeedback_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
@@ -668,15 +707,15 @@ function generateFeedback_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         // これまでの結果をL1セルに保存
         workSheet.getRange("L1").setValue(combinedMarkdownResponse);
         break;
       }
 
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2;
       const taskKey = workValues[i][0];
       const categoryName = workValues[i][3];
@@ -701,10 +740,9 @@ function generateFeedback_PROCESS() {
         let categoryMarkdown = "";
 
         while (continueProcessingCategory) {
-          // 時間チェック
-          const currentTime = new Date().getTime();
-          if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-            Logger.log(`時間上限に達したため、カテゴリ「${categoryName}」の処理を中断します。`);
+          // 時間チェック（whileループ内も動的チェック）
+          if (!_shouldContinueProcessing(startTime, taskExecutionTimes, 2.0)) {
+            Logger.log(`時間上限に近づいたため、カテゴリ「${categoryName}」の処理を中断します。`);
             // このカテゴリは未完了のまま保存
             workSheet.getRange("L1").setValue(combinedMarkdownResponse);
             throw new Error("時間制限により中断");
@@ -746,11 +784,24 @@ ${csvChunk}`;
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+
         // エラーが発生した場合、現在までの結果を保存
         workSheet.getRange("L1").setValue(combinedMarkdownResponse);
         break; // エラー発生時は処理を中断
@@ -927,6 +978,7 @@ function reviseFeedback_SETUP() {
  */
 function reviseFeedback_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(REVISE_FEEDBACK_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
@@ -977,13 +1029,13 @@ function reviseFeedback_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         break;
       }
 
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2; // 作業シートの行番号
       const taskKey = workValues[i][0];
       const taskDataJson = workValues[i][1];
@@ -1072,11 +1124,23 @@ ${referencedRawData}
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
       }
     }
   }
@@ -1261,6 +1325,7 @@ function createIllustrationPrompts_SETUP() {
  */
 function createIllustrationPrompts_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(ILLUSTRATION_PROMPTS_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
@@ -1292,18 +1357,18 @@ function createIllustrationPrompts_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         break;
       }
 
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2;
       const taskKey = workValues[i][0];
       const rowIndex = workValues[i][3];
 
-      try {
+      try{
         // ステータスを「処理中」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
 
@@ -1341,11 +1406,23 @@ function createIllustrationPrompts_PROCESS() {
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
       }
     }
   }
@@ -1591,6 +1668,7 @@ function createImages_SETUP() {
  */
 function createImages_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(CREATE_IMAGES_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
@@ -1640,13 +1718,13 @@ function createImages_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         break;
       }
 
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2;
       const taskKey = workValues[i][0];
       const serialNumber = workValues[i][3];
@@ -1709,11 +1787,23 @@ function createImages_PROCESS() {
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
       }
     }
   }

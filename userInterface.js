@@ -36,25 +36,27 @@ function onOpen() {
 
     // --- スライド生成フェーズ ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('📽️ スライド生成')
-      .addItem('⑦_1 スライド生成(TOMY)のセットアップ', 'createSlideTomy_SETUP')
-      .addItem('⑦_2 スライド生成(TOMY)の実行', 'createSlides_PROCESS'))
+      .addItem('⑦_1 スライド生成_TOMY（セットアップ）', 'createSlideTomy_SETUP')
+      .addItem('⑦_2 スライド生成_TOMY（実行）', 'createSlides_PROCESS'))
     .addSeparator()
 
     // --- 自由分析 ---
-    .addItem('⑧ 自由プロンプトを実行 (free promptシート)', 'freePrompt')
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔍 Free Prompt')
+      .addItem('⑧-1 Free Prompt (セットアップ)', 'freePrompt_SETUP')
+      .addItem('⑧-2 Free Prompt (実行)', 'freePrompt_PROCESS'))
     .addSeparator()
 
     // --- 東海理科用ツール ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('🌡️ 東海理科用')
-      .addItem('1-1 詳細情報生成のセットアップ', 'generateKnowledge_SETUP')
-      .addItem('1-2 詳細情報生成の実行', 'generateKnowledge_PROCESS')
-      .addItem('1-3 スライド生成(詳細情報)のセットアップ', 'createSlideDetailTR_SETUP')
-      .addItem('1-4 スライド生成(詳細情報)の実行', 'createSlides_PROCESS')
-      .addItem('2-1 スライド生成(まとめ一覧)のセットアップ', 'createSlideSummaryTR_SETUP')
-      .addItem('2-2 スライド生成(まとめ一覧)の実行', 'createSlides_PROCESS')
+      .addItem('1-1 詳細情報生成（セットアップ）', 'generateKnowledge_SETUP')
+      .addItem('1-2 詳細情報生成（実行）', 'generateKnowledge_PROCESS')
+      .addItem('1-3 行ごとの画像生成(セットアップ)', 'generateRowImages_SETUP')
+      .addItem('1-4 行ごとの画像生成(実行)', 'generateRowImages_PROCESS')
+      .addItem('1-5 スライド生成(詳細情報)（セットアップ）', 'createSlideDetailTR_SETUP')
+      .addItem('1-6 スライド生成(詳細情報)（実行）', 'createSlides_PROCESS')
       .addSeparator()
-      .addItem('🎨-1 行ごとの画像生成(セットアップ)', 'generateRowImages_SETUP')
-      .addItem('🎨-2 行ごとの画像生成(実行)', 'generateRowImages_PROCESS'))
+      .addItem('2-1 スライド生成(まとめ一覧)（セットアップ）', 'createSlideSummaryTR_SETUP')
+      .addItem('2-2 スライド生成(まとめ一覧)（実行）', 'createSlides_PROCESS'))
 
     .addToUi();
 }

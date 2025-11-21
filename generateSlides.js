@@ -85,8 +85,8 @@ function createSlideDetailTR_SETUP() {
       "placeholder_point_rough":9, "placeholder_equip_num":11,
       "placeholder_original_num":12,
     };
-    const IMAGE_ALT_TEXT_TITLE_TR = false;
-    const ILLUSTRATION_COLUMN_INDEX_TR = false;
+    const IMAGE_ALT_TEXT_TITLE_TR = 'placeholder_image'; // 画像プレースホルダーのタイトル
+    const ILLUSTRATION_COLUMN_INDEX_TR = 13; // N列（0-indexed）
     const combineRows = false;
     const mode = 'DetailTR';
     const groupingColumns = ["設備名称", "工程", "異常現象"];
@@ -268,13 +268,16 @@ function createSlideSummaryTR_SETUP() {
  */
 function createSlides_PROCESS() {
   const startTime = new Date().getTime();
-  
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
+
   const workSheet = ss.getSheetByName(WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
     Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
     return;
   }
-  
+
+  _showProgress('スライド生成処理を開始します...', '📽️ スライド生成', 3);
+
   // --- 1. 共通設定（プレゼンテーションID、対象シート名）を作業シートから取得 ---
   // (D1セル、E1セルに保存したと仮定)
   const presentationId = workSheet.getRange("D1").getValue();
@@ -301,25 +304,25 @@ function createSlides_PROCESS() {
   // --- 2. 未処理のタスクを検索 ---
   const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 11); // 11列分取得
   const workValues = workRange.getValues();
-  
+
   let processedCountInThisRun = 0;
 
   // --- 3. バッチ処理ループ ---
   for (let i = 0; i < workValues.length; i++) {
     const currentStatus = workValues[i][2]; // C列: Status
-    
+
     // 未処理のタスクか？
     if (currentStatus === STATUS_EMPTY) {
-      
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         break; // 次のトリガー実行に任せる
       }
-      
+
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2; // スプレッドシートの実際の行番号
-      
+
       // タスク情報を取得
       const taskKey = workValues[i][0];
       const taskDataJson = workValues[i][1];
@@ -332,7 +335,7 @@ function createSlides_PROCESS() {
       const imageColIndex = workValues[i][10];
 
       let templateSlide; // テンプレートスライドはタスクごとに取得
-      
+
       try {
         // 3a. ステータスを「処理中」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
@@ -388,12 +391,34 @@ function createSlides_PROCESS() {
         // 3d. ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
+        // 3件ごとに進捗を表示（スライド生成は時間がかかるため頻度を下げる）
+        if (processedCountInThisRun % 3 === 0) {
+          const totalTasks = workValues.length;
+          _showProgress(
+            `${processedCountInThisRun} / ${totalTasks} 件完了`,
+            '📽️ スライド生成中',
+            2
+          );
+        }
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         // 3e. エラー処理
         Logger.log(`タスク "${taskKey}" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
       }
     } // End if (status_empty)
   } // End for loop
@@ -429,8 +454,12 @@ function createSlides_PROCESS() {
       // 4b. 完了通知
       const presentationUrl = finalPresentation.getUrl();
       Logger.log(`処理完了。プレゼンテーションURL: ${presentationUrl}`);
-      ss.toast('すべてのスライド生成が完了しました！', '完了', 10);
-      ui.alert('成功', `プレゼンテーションを作成しました: ${finalPresentation.getName()}\nURL: ${presentationUrl}`, ui.ButtonSet.OK);
+      _showProgress('すべてのスライド生成が完了しました！', '✅ 完了', 10);
+
+      // 手動実行時のみアラート表示
+      if (_isManualExecution()) {
+        ui.alert('成功', `プレゼンテーションを作成しました: ${finalPresentation.getName()}\nURL: ${presentationUrl}`, ui.ButtonSet.OK);
+      }
 
       // 4c. トリガーを停止
       stopTriggers_('createSlides_PROCESS');

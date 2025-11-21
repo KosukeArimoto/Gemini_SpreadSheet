@@ -1,160 +1,8 @@
-// /**
-//  * [新規] 保全記録データを基に、AIを使って保全ナレッジを生成し、新しいシートに出力する関数
-//  */
-// function generateMaintenanceKnowledge() {
-
-//   try {
-//     ss.toast('保全ナレッジの生成を開始します...', '開始', 5);
-
-//     // --- 1. 設定情報を取得 ---
-//     const knowledgeConfigSheet = ss.getSheetByName('カテゴリごとに知見作成'); // 新しい設定シート
-//     if (!configSheet || !promptSheet || !knowledgeConfigSheet) {
-//       throw new Error('必要な設定シート（config, prompt, カテゴリごとに知見作成）が見つかりません。');
-//     }
-
-//     const inputSheetName = knowledgeConfigSheet.getRange('C6').getValue(); // 入力シート名をC6から取得
-//     const basePrompt = knowledgeConfigSheet.getRange('C31').getValue(); // 基本プロンプトをC31から取得
-
-//     // 分析対象の列名リストを取得 (C7からC11まで、空白は除外)
-//     const targetColumns = knowledgeConfigSheet.getRange('C7:C11').getValues()
-//                             .flat() // 2次元配列を1次元に変換
-//                             .filter(String); // 空白を除外
-//     if (targetColumns.length === 0) {
-//       throw new Error('「カテゴリごとに知見作成」シートのC7:C11に分析対象の列名が指定されていません。');
-//     }
-
-//     if (!inputSheetName || !basePrompt) {
-//       throw new Error('promptシートのC6(入力シート名)またはC31(プロンプト)が空です。');
-//     }
-
-//     // --- 2. 入力データを読み込む ---
-//     const inputSheet = ss.getSheetByName(inputSheetName);
-//     if (!inputSheet) throw new Error(`入力シート「${inputSheetName}」が見つかりません。`);
-
-//     const allData = inputSheet.getDataRange().getValues();
-//     const header = allData[0];
-//     const dataRows = allData.slice(1);
-
-//     if (dataRows.length === 0) {
-//       throw new Error(`入力シート「${inputSheetName}」にデータがありません。`);
-//     }
-
-//     // --- 3. 指定された列のインデックスを特定 ---
-//     const targetIndices = targetColumns.map(colName => {
-//       const index = header.indexOf(colName);
-//       if (index === -1) throw new Error(`入力シートのヘッダーに列名「${colName}」が見つかりません。`);
-//       return index;
-//     });
-//     // 指定された列名だけのヘッダーを作成 (CSV生成用)
-//     const targetHeader = targetColumns;
-
-//     const groupedData = new Map(); // Map<グループキー, 行データの配列>
-
-//     dataRows.forEach(row => {
-//       // グループ化キーを作成 (指定列の値を結合)
-//       const groupKey = targetIndices.map(index => row[index]).join('|'); // 区切り文字で結合
-
-//       if (!groupedData.has(groupKey)) {
-//         groupedData.set(groupKey, []);
-//       }
-//       groupedData.get(groupKey).push(row); // 同じキーを持つグループに行を追加
-//     });
-//     // console.log("groupedDataは"+groupedData.entries())
-
-//     // --- 4. データを分割し、ループ処理 ---
-//     let allResults = []; // 全てのグループからの結果を格納する配列
-//     let processedGroups = 0;
-//     const totalGroups = groupedData.size;
-
-//     for (const [groupKey, groupRows] of groupedData.entries()) {
-//       processedGroups++;
-//       // グループキーから代表的な情報を取得して表示（例として最初の3要素）
-//       const groupInfo = groupKey.split('|').slice(0, 3).join(', ');
-//       ss.toast(`グループ ${processedGroups}/${totalGroups} を処理中 (${groupInfo})...`, 'API連携中', -1);
-
-//       // --- 4a. このグループのデータをCSV形式に変換 ---
-//       // ★注意：プロンプト指示に合わせて、渡す列をtargetColumnsだけに限定するか、全列渡すか要検討★
-//       // ここでは *全列* をCSVにして渡す例 (プロンプト内で必要な列を参照させる想定)
-//       const csvChunk = [header] // 全ヘッダー
-//                         .concat(groupRows) // このグループの行データ (全列)
-//                         .map(row =>
-//                            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-//                          ).join('\n');
-//       // console.log(`Group Key: ${groupKey}, Row Count: ${groupRows.length}`);
-//       // console.log("CSV Chunk:", csvChunk); // デバッグ用
-
-//       // --- 4b. プロンプトを構築 ---
-//       let prompt = basePrompt;
-//       prompt += `\n\n# 今回分析するデータセット (CSV形式)\n以下のデータは「${targetHeader.join(', ')}」の値がすべて同じグループです。\n---\n${csvChunk}`;
-//       // console.log("prompt is "+prompt)
-
-//       // --- 4c. APIを呼び出し、結果を解析・結合 ---
-//       const resultText = callGemini_(prompt); // API呼び出し
-//       // console.log("resultTextは"+resultText);
-
-//       try {
-//         const jsonStringMatch = resultText.match(/```json\s*([\s\S]*?)\s*```/);
-//         const cleanedJsonString = jsonStringMatch ? jsonStringMatch[1] : resultText;
-//         if (cleanedJsonString.trim() !== "") {
-//           const newResults = JSON.parse(cleanedJsonString);
-//           // 結果が配列でない場合も考慮してconcat
-//           allResults = allResults.concat(Array.isArray(newResults) ? newResults : [newResults]);
-//         } else {
-//           Logger.log(`警告: グループ "${groupKey}" のAPI応答が空でした。スキップします。`);
-//         }
-//       } catch (e) {
-//         Logger.log(`警告: グループ "${groupKey}" のJSON解析エラー。スキップします。エラー: ${e}, API応答: ${resultText}`);
-//         continue; // エラーがあっても次のグループへ
-//       }
-
-//       Utilities.sleep(1000); // API負荷軽減
-//     }
-
-//     // --- 7. 最終結果を動的に解釈してシートに出力 ---
-//     if (allResults.length === 0) {
-//       throw new Error("AIからの有効な応答（ナレッジ）がありませんでした。");
-//     }
-
-//     ss.toast('結果を出力しています...', '最終処理中', -1);
-
-//     // 最初の結果オブジェクトからキーを取得してヘッダーにする
-//     const outputHeader = Object.keys(allResults[0]);
-//     // 全てのオブジェクトをヘッダーの順に値を取り出して2次元配列に変換
-//     const outputData = allResults.map(item => {
-//       return outputHeader.map(key => item[key] || ""); // 存在しないキーの場合は空文字
-//     });
-
-//     const resultSheetName = `保全ナレッジ_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
-//     const resultSheet = ss.insertSheet(resultSheetName, ss.getNumSheets() + 1);
-
-//     // ヘッダーとデータを書き込み
-//     resultSheet.getRange(1, 1, 1, outputHeader.length).setValues([outputHeader]).setFontWeight('bold');
-//     if (outputData.length > 0) {
-//       resultSheet.getRange(2, 1, outputData.length, outputData[0].length)
-//         .setValues(outputData)
-//         .setWrap(true) // セル内折り返しを有効に
-//         .setVerticalAlignment('top'); // 上揃え
-//     }
-//     resultSheet.autoResizeColumns(1, outputHeader.length); // 列幅を自動調整
-
-//     ss.toast('処理が完了しました！', '完了', 5);
-//     ui.alert('成功', `シート「${resultSheetName}」に保全ナレッジを出力しました。`, ui.ButtonSet.OK);
-
-//   } catch (e) {
-//     Logger.log(e);
-//     ss.toast('エラーが発生しました。', '失敗', 10);
-//     ui.alert('処理中にエラーが発生しました。\n\n詳細:\n' + e.message, ui.ButtonSet.OK);
-//   }
-// }
-
-
-
-
 
 /**
  * [STEP 1: 手動実行] 保全ナレッジ生成の「セットアップ」を行う関数
  * 1. データを読み込み、グループ化する
- * 2. 作業リスト（_作業グループ）シートを作成する
+ * 2. 作業リスト（_詳細スライド生成作業リスト）シートを作成する
  * 3. 結果出力シート（保全ナレッジ_結果）を作成する
  */
 function generateKnowledge_SETUP() {
@@ -206,12 +54,12 @@ function generateKnowledge_SETUP() {
       throw new Error('作成されたグループが0件です。');
     }
 
-    // --- 5. 作業リスト（_作業グループ）シートを作成 ---
+    // --- 5. 作業リスト（_詳細スライド生成作業リスト）シートを作成 ---
     let workSheet = ss.getSheetByName(WORK_LIST_SHEET_NAME);
     if (workSheet) {
       workSheet.clear(); // 既存のシートをクリア
     } else {
-      workSheet = ss.insertSheet(WORK_LIST_SHEET_NAME, ss.getNumSheets() + 1);
+      workSheet = ss.insertSheet(WORK_LIST_SHEET_NAME, 0);
     }
     
     const workHeader = ["GroupKey", "TargetRowNumbers (JSON)", "Status"];
@@ -236,7 +84,7 @@ function generateKnowledge_SETUP() {
 
     const resultSheetName = `保全ナレッジ_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
 
-    // 「_作業グループ」シートのD1セルに、今回使うシート名をメモとして書き込む
+    // 「_詳細スライド生成作業リスト」シートのD1セルに、今回使うシート名をメモとして書き込む
     workSheet.getRange("D1").setValue(resultSheetName);
     Logger.log(`作業シートのD1セルに結果シート名「${resultSheetName}」を書き込みました。`);
 
@@ -263,23 +111,26 @@ function generateKnowledge_SETUP() {
 
 /**
  * [STEP 2: トリガー実行] ナレッジ生成の「バッチ処理」を行うワーカー関数
- * 1. _作業グループ シートから「未処理」のタスクを取得
+ * 1. _詳細スライド生成作業リスト シートから「未処理」のタスクを取得
  * 2. 時間の許す限りAPI処理を実行
  * 3. 処理結果を 保全ナレッジ_結果 シートに追記
  */
 function generateKnowledge_PROCESS() {
   const startTime = new Date().getTime();
-  
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
+
   try {
     // --- 1. 必要なシートと設定を取得 ---
     const workSheet = ss.getSheetByName(WORK_LIST_SHEET_NAME);
     const outputSheet = ss.getSheetByName(OUTPUT_SHEET_NAME);
     const knowledgeConfigSheet = ss.getSheetByName('カテゴリごとに知見作成');
-    
+
     if (!workSheet || !outputSheet || !knowledgeConfigSheet) {
-      Logger.log("必要なシート（_作業グループ, 保全ナレッジ_結果, カテゴリごとに知見作成）がありません。処理を終了します。");
+      Logger.log("必要なシート（_詳細スライド生成作業リスト, 保全ナレッジ_結果, カテゴリごとに知見作成）がありません。処理を終了します。");
       return; // トリガーなのでエラーは出さずに終了
     }
+
+    _showProgress('保全ナレッジ生成処理を開始します...', '📝 ナレッジ生成', 3);
 
     const basePrompt = knowledgeConfigSheet.getRange('C31').getValue();
     const inputSheetName = knowledgeConfigSheet.getRange('C6').getValue();
@@ -296,28 +147,28 @@ function generateKnowledge_PROCESS() {
     // --- 2. 未処理のタスクを検索 ---
     const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 3);
     const workValues = workRange.getValues();
-    
+
     let processedCountInThisRun = 0;
     let isFirstOutput = (outputSheet.getLastRow() <= 1);
 
     // --- 3. バッチ処理ループ ---
     for (let i = 0; i < workValues.length; i++) {
       const currentStatus = workValues[i][2]; // ステータス列
-      
+
       // 未処理のタスクか？
       if (currentStatus === STATUS_EMPTY) {
-        
-        // 実行時間が5分を超えそうなら、自主的に終了
-        const currentTime = new Date().getTime();
-        if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-          Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+
+        // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+        if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+          Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
           return; // 次のトリガー実行に任せる
         }
-        
+
+        const taskStartTime = new Date().getTime();
         const sheetRow = i + 2; // スプレッドシートの実際の行番号
         const groupKey = workValues[i][0];
         const targetRowNumbers = JSON.parse(workValues[i][1]); // ["2", "5", "10"] など
-        
+
         try {
           // 3a. ステータスを「処理中」に更新
           workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
@@ -381,12 +232,33 @@ function generateKnowledge_PROCESS() {
           workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
           processedCountInThisRun++;
 
+          // このタスクの実行時間を記録
+          const taskEndTime = new Date().getTime();
+          const taskDuration = taskEndTime - taskStartTime;
+          taskExecutionTimes.push(taskDuration);
+          Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
+          // 5件ごとに進捗を表示
+          if (processedCountInThisRun % 5 === 0) {
+            const totalTasks = workValues.length;
+            _showProgress(
+              `${processedCountInThisRun} / ${totalTasks} 件完了`,
+              '📝 ナレッジ生成中',
+              2
+            );
+          }
+
         } catch (e) {
           // 3i. エラー処理
           Logger.log(`グループ "${groupKey}" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
           workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+          // エラーの場合も実行時間を記録
+          const taskEndTime = new Date().getTime();
+          const taskDuration = taskEndTime - taskStartTime;
+          taskExecutionTimes.push(taskDuration);
         }
-        
+
         // Utilities.sleep(SLEEP_MS_PER_GROUP); // API負荷軽減 (robustFetch_ で制御しているなら不要かも)
       }
     }
@@ -416,10 +288,10 @@ function generateKnowledge_PROCESS() {
     // 「今回の実行で処理したタスクがあり」かつ「（最新のステータスで）残タスクが0になった」場合
     if (remainingTasks === 0 && processedCountInThisRun > 0) {
 
-    // (A) 「_作業グループ」シートのD1セルから、使用する結果シート名を取得
+    // (A) 「_詳細スライド生成作業リスト」シートのD1セルから、使用する結果シート名を取得
     const newSheetName = workSheet.getRange("D1").getValue();
     if (!newSheetName) {
-       Logger.log("エラー: _作業グループ シートのD1セルに結果シート名がありません。SETUPを先に実行してください。");
+       Logger.log("エラー: _詳細スライド生成作業リスト シートのD1セルに結果シート名がありません。SETUPを先に実行してください。");
       return;
     }
 
@@ -433,7 +305,7 @@ function generateKnowledge_PROCESS() {
       }
 
       Logger.log("すべてのグループの処理が完了しました。");
-      ss.toast('すべてのナレッジ生成が完了しました！', '完了', 10);
+      _showProgress('すべてのナレッジ生成が完了しました！', '✅ 完了', 10);
       
       
       // (オプション) ここでトリガーを自動停止する処理も追加可能

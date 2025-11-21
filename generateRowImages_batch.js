@@ -58,33 +58,39 @@ function generateRowImages_SETUP() {
       throw new Error(`シート「${targetSheetName}」にデータ行がありません（ヘッダーのみ）。`);
     }
 
-    // 通し番号の列インデックスを特定（0列目と仮定）
-    const serialNumberColIndex = 0;
-
     // --- 3. 処理対象の行を特定 ---
     let targetRows = [];
     if (targetNumbersString) {
-      // C8セルに指定がある場合、その番号のみを対象とする
-      const targetNumbers = new Set(_parseNumberRangeString(String(targetNumbersString)));
+      // C8セルに指定がある場合、その行番号のみを対象とする
+      const targetRowNumbers = new Set(_parseNumberRangeString(String(targetNumbersString)));
+
       dataRows.forEach((row, index) => {
-        const serialNumber = parseInt(row[serialNumberColIndex], 10);
-        if (targetNumbers.has(serialNumber)) {
+        const rowNumber = index + 2; // シート上の行番号（1-indexed、ヘッダーは1行目）
+        if (targetRowNumbers.has(rowNumber)) {
           targetRows.push({
-            rowIndex: index + 2, // シート上の行番号（1-indexed）
-            serialNumber: serialNumber
+            rowIndex: rowNumber
           });
         }
       });
+
+      if (targetRows.length === 0) {
+        const availableRows = dataRows.map((_, index) => index + 2);
+        throw new Error(
+          `処理対象の行が見つかりませんでした。\n` +
+          `指定された行番号: ${Array.from(targetRowNumbers).join(', ')}\n` +
+          `利用可能な行番号: ${availableRows.join(', ')} (全${availableRows.length}行)\n` +
+          `※行番号はヘッダーを含むシート上の行番号です（ヘッダー=1行目、最初のデータ=2行目）`
+        );
+      }
     } else {
       // C8セルが空の場合、全行を対象とする
       targetRows = dataRows.map((row, index) => ({
-        rowIndex: index + 2,
-        serialNumber: parseInt(row[serialNumberColIndex], 10)
+        rowIndex: index + 2
       }));
     }
 
     if (targetRows.length === 0) {
-      throw new Error('処理対象の行が見つかりませんでした。C8セルの指定を確認してください。');
+      throw new Error('処理対象の行が見つかりませんでした。');
     }
 
     // --- 4. 作業シート作成 & タスク書き込み ---
@@ -95,13 +101,12 @@ function generateRowImages_SETUP() {
       workListData.push([
         `Row_${item.rowIndex}`, // TaskKey
         item.rowIndex, // TaskData (行番号)
-        STATUS_EMPTY, // Status
-        item.serialNumber // 通し番号（参照用）
+        STATUS_EMPTY // Status
       ]);
     });
 
     if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
+      workSheet.getRange(2, 1, workListData.length, 3).setValues(workListData);
     }
 
     // --- 5. 画像列のヘッダー追加はPROCESS時に行う ---
@@ -126,12 +131,15 @@ function generateRowImages_SETUP() {
  */
 function generateRowImages_PROCESS() {
   const startTime = new Date().getTime();
+  const taskExecutionTimes = []; // タスクごとの実行時間を記録
 
   const workSheet = ss.getSheetByName(IMAGE_WORK_LIST_SHEET_NAME);
   if (!workSheet || workSheet.getLastRow() < 2) {
     Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
     return;
   }
+
+  _showProgress('画像生成処理を開始します...', '🎨 画像生成', 3);
 
   // --- 1. 共通設定を作業シートから取得 ---
   const targetSheetName = workSheet.getRange("E1").getValue();
@@ -180,7 +188,7 @@ function generateRowImages_PROCESS() {
   }
 
   // --- 2. 未処理のタスクを検索 ---
-  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 4);
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 3);
   const workValues = workRange.getValues();
 
   let processedCountInThisRun = 0;
@@ -190,17 +198,16 @@ function generateRowImages_PROCESS() {
     const currentStatus = workValues[i][2]; // C列: Status
 
     if (currentStatus === STATUS_EMPTY) {
-      // 実行時間が上限に近づいたら、自主的に終了
-      const currentTime = new Date().getTime();
-      if (currentTime - startTime > MAX_EXECUTION_TIME_MS) {
-        Logger.log(`時間上限 (${MAX_EXECUTION_TIME_MS / 60000}分) に近づいたため、処理を中断します。`);
+      // 動的タイムアウトチェック：次のタスクを実行可能かを判定
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
         break;
       }
 
+      const taskStartTime = new Date().getTime();
       const sheetRow = i + 2; // 作業シートの行番号
       const taskKey = workValues[i][0];
       const rowIndex = workValues[i][1]; // 対象シートの行番号
-      const serialNumber = workValues[i][3];
 
       try {
         // ステータスを「処理中」に更新
@@ -222,7 +229,7 @@ function generateRowImages_PROCESS() {
 ${rowWithHeaderCsv}
 ---`;
 
-        Logger.log(`[${processedCountInThisRun + 1}] 行${rowIndex}（通し番号: ${serialNumber}）の画像を生成中...`);
+        Logger.log(`[${processedCountInThisRun + 1}] 行${rowIndex}の画像を生成中...`);
 
         // 画像生成APIを呼び出し
         const base64Image = callGPTApi_(finalPrompt);
@@ -230,7 +237,7 @@ ${rowWithHeaderCsv}
         // (1) Google Driveに保存（フォルダが指定されている場合）
         if (outputFolder) {
           try {
-            const imageName = `${targetSheetName}_No${serialNumber}_${Utilities.formatDate(new Date(), 'JST', 'yyyyMMddHHmmss')}.png`;
+            const imageName = `${targetSheetName}_Row${rowIndex}_${Utilities.formatDate(new Date(), 'JST', 'yyyyMMddHHmmss')}.png`;
             const decodedBytes = Utilities.base64Decode(base64Image);
             const imageBlob = Utilities.newBlob(decodedBytes, 'image/png', imageName);
             const savedFile = outputFolder.createFile(imageBlob);
@@ -254,11 +261,34 @@ ${rowWithHeaderCsv}
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
+        // 5件ごとに進捗を表示
+        if (processedCountInThisRun % 5 === 0) {
+          const totalTasks = workValues.length;
+          _showProgress(
+            `${processedCountInThisRun} / ${totalTasks} 件完了`,
+            '🎨 画像生成中',
+            2
+          );
+        }
+
         SpreadsheetApp.flush();
 
       } catch (e) {
         Logger.log(`タスク "${taskKey}" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
         workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+
         // エラーが発生してもシートには「生成失敗」と表示
         try {
           targetSheet.getRange(rowIndex, imageColumnIndex).setValue('生成失敗');
@@ -283,17 +313,15 @@ ${rowWithHeaderCsv}
   }
 
   if (remainingTasks === 0) {
-    Logger.log("✅ すべてのタスクが完了しました！");
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      'すべての画像生成が完了しました。',
+    _showProgress(
+      `すべての画像生成が完了しました！（合計 ${processedCountInThisRun} 件）`,
       '✅ 完了',
       10
     );
   } else {
-    Logger.log(`残りタスク数: ${remainingTasks}`);
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      `処理中... 残り ${remainingTasks} 件`,
-      '画像生成中',
+    _showProgress(
+      `今回 ${processedCountInThisRun} 件処理。残り ${remainingTasks} 件`,
+      '⏸️ 一時停止',
       5
     );
   }
@@ -310,7 +338,7 @@ function _createImageWorkSheet(targetSheetName, outputFolderUrl, basePrompt) {
     workSheet = ss.insertSheet(IMAGE_WORK_LIST_SHEET_NAME, 0);
   }
 
-  const workHeader = ["TaskKey", "RowIndex", "Status", "SerialNumber"];
+  const workHeader = ["TaskKey", "RowIndex", "Status"];
   workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
 
   // E1, F1, G1 に実行時に必要な情報を保存
