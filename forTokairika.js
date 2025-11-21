@@ -444,30 +444,9 @@ function generateKnowledge_PROCESS() {
 
 /**
  * [新規] 'generateKnowledge_PROCESS' を実行するトリガーを自動停止する関数
+ * 注: commonHelpers.js の stopTriggers_() を使用することもできます
  */
 function stopTriggers_() {
-  try {
-    const triggers = ScriptApp.getProjectTriggers();
-    let deletedCount = 0;
-
-    triggers.forEach(trigger => {
-      // 停止させたい関数名（'generateKnowledge_PROCESS'）と一致するかチェック
-      if (trigger.getHandlerFunction() === 'generateKnowledge_PROCESS') {
-        ScriptApp.deleteTrigger(trigger); // トリガーを削除
-        deletedCount++;
-      }
-    });
-
-    if (deletedCount > 0) {
-      Logger.log(`${deletedCount}件の 'generateKnowledge_PROCESS' トリガーを削除しました。`);
-      // (オプション) 完了をメールで通知する場合
-      // MailApp.sendEmail(Session.getActiveUser().getEmail(), "バッチ処理完了とトリガー停止", "処理が完了したため、トリガーを自動停止しました。");
-    } else {
-      Logger.log("'generateKnowledge_PROCESS' を実行するトリガーは見つかりませんでした。");
-    }
-  } catch (e) {
-    Logger.log(`トリガーの停止中にエラーが発生しました: ${e}`);
-    // メール通知
-    // MailApp.sendEmail(Session.getActiveUser().getEmail(), "トリガー停止エラー", `処理は完了しましたが、トリガーの自動停止に失敗しました。\nエラー: ${e.message}`);
-  }
+  // commonHelpers.js の汎用版を利用
+  stopTriggers_('generateKnowledge_PROCESS');
 }

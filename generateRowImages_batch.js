@@ -320,3 +320,9 @@ function _createImageWorkSheet(targetSheetName, outputFolderUrl, basePrompt) {
   workSheet.autoResizeColumn(1);
   return workSheet;
 }
+
+// ===================================================================
+// 注: 以下の共通ヘルパー関数は commonHelpers.js に移動しました
+// - _parseNumberRangeString()
+// - _extractFolderIdFromUrl()
+// ===================================================================

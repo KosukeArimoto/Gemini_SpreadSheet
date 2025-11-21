@@ -48,12 +48,30 @@ npm run watch
 
 ## Files
 
-- `callGenerativeAI.js` - Generative AI integration
-- `generateCategories.js` - Category generation logic
-- `generateSlides.js` - Slide generation
+### Core Files
+- `setGrobalVariables.js` - Global variables and constants setup
+- `commonHelpers.js` - **NEW** Shared utility functions used across multiple files
+- `callGenerativeAI.js` - Generative AI API integration (Gemini & OpenAI)
+- `setUserCredencials.js` - User credentials management
+- `userInterface.js` - UI menu definitions
+
+### Feature Files
+- `generateCategories.js` - Category generation and feedback logic
+- `generateSlides.js` - Slide generation with batch processing
 - `generateSlidesTR.js` - Slide generation (TR version)
+- `generateRowImages_batch.js` - **NEW** Row-by-row image generation with batch processing
 - `forTokairika.js` - Tokairika specific functions
 - `memo.gs.js` - Memo functions
-- `setGrobalVariables.js` - Global variables setup
-- `setUserCredencials.js` - User credentials management
-- `userInterface.js` - UI components
+
+### Shared Functions in commonHelpers.js
+
+The following utility functions have been consolidated into `commonHelpers.js`:
+- `_extractFolderIdFromUrl()` - Extract Google Drive folder ID from URL
+- `_parseNumberRangeString()` - Parse number ranges (e.g., "1-5, 10, 15-20")
+- `_parseColumnRangeString()` - Parse column ranges (e.g., "A, C, E-G")
+- `_columnToIndex()` - Convert column letter to index
+- `parseMarkdownTable_()` - Parse markdown table to 2D array
+- `_replacePrompts()` - Replace placeholders in prompts
+- `extractGoogleDriveId_()` - Extract Google Drive ID from URL
+- `_showSetupCompletionDialog()` - Show setup completion dialog
+- `stopTriggers_()` - Stop triggers for a specific function

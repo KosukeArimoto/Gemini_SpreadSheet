@@ -594,43 +594,13 @@ function _createAndMovePresentation(newPresentationTitle) {
   return presentationId; // ★IDを返す
 }
 
-/**
- * [新規] セットアップ完了時にトリガー設定を促すダイアログ
- */
-function _showSetupCompletionDialog() {
-  const ui = SpreadsheetApp.getUi();
-  ss.toast('セットアップが完了しました。', '完了', 5);
-  const message = `作業リスト（${WORK_LIST_SHEET_NAME}）を作成しました。\n\n` +
-                  `次に、このスクリプトの「createSlides_PROCESS」関数に対して\n` +
-                  `「時間ベース」のトリガー（30分ごと）を設定してください。`;
-  ui.alert('セットアップ完了', message, ui.ButtonSet.OK);
-}
-
-/**
- * [流用] 特定の関数を実行するトリガーを自動停止する関数
- * @param {string} functionName - 停止させたい関数名
- */
-function stopTriggers_(functionName) {
-  try {
-    const triggers = ScriptApp.getProjectTriggers();
-    let deletedCount = 0;
-
-    triggers.forEach(trigger => {
-      if (trigger.getHandlerFunction() === functionName) {
-        ScriptApp.deleteTrigger(trigger);
-        deletedCount++;
-      }
-    });
-
-    if (deletedCount > 0) {
-      Logger.log(`${deletedCount}件の '${functionName}' トリガーを削除しました。`);
-    } else {
-      Logger.log(`'${functionName}' を実行するトリガーは見つかりませんでした。`);
-    }
-  } catch (e) {
-    Logger.log(`トリガーの停止中にエラーが発生しました: ${e}`);
-  }
-}
+// ===================================================================
+// 注: 以下の共通ヘルパー関数は commonHelpers.js に移動しました
+// - _showSetupCompletionDialog()
+// - stopTriggers_()
+// - extractGoogleDriveId_() (一部)
+// - _extractFolderIdFromUrl()
+// ===================================================================
 
 // --- 以下、元のコードから変更不要なヘルパー関数 ---
 // ( _transferChunkToSlide_, extractGoogleDriveId_, _extractFolderIdFromUrl, assignGroupIdsToSheet )
@@ -840,39 +810,10 @@ function _transferChunkToSlide_(presentation, templateSlide, chunk, startRowNumF
 
 }
 
-// --- ヘルパー関数 ---
-function extractGoogleDriveId_(url) {
-  // (変更なし)
-  if (!url || typeof url !== 'string') return null;
-  let id = null;
-  let match = url.match(/\/d\/([a-zA-Z0-9_-]{25,})\//);
-  if (match && match[1]) { id = match[1]; }
-  else { match = url.match(/[?&]id=([a-zA-Z0-9_-]{25,})/); if (match && match[1]) { id = match[1]; } }
-  return (id && id.length >= 25) ? id : null;
-}
-
-/**
- * [新規] Google DriveのフォルダURLからフォルダIDを抽出するヘルパー関数
- * @param {string} folderUrl - Google DriveのフォルダURL
- * @return {string | null} - フォルダID、見つからない場合はnull
- */
-function _extractFolderIdFromUrl(folderUrl) {
-  if (!folderUrl || typeof folderUrl !== 'string') return null;
-  let id = null;
-  // 標準的なフォルダURL (.../folders/ID)
-  let match = folderUrl.match(/folders\/([a-zA-Z0-9_-]{25,})/);
-  if (match && match[1]) {
-    id = match[1];
-  } else {
-    // 共有リンクURL (...?id=ID)
-    match = folderUrl.match(/[?&]id=([a-zA-Z0-9_-]{25,})/);
-    if (match && match[1]) {
-      id = match[1];
-    }
-  }
-  // Google DriveのIDは通常25文字以上
-  return (id && id.length >= 25) ? id : null;
-}
+// ===================================================================
+// 注: extractGoogleDriveId_() と _extractFolderIdFromUrl() は
+// commonHelpers.js に移動しました
+// ===================================================================
 
 
 // --- ★変更: ID採番用の関数を新設 ---
