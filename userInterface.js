@@ -18,13 +18,17 @@ function onOpen() {
     // --- 設計フィードバックフェーズ ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('📝 設計FB')
       .addItem('③ 設計FBを生成 (prompt3)', 'generateFeedback')
-      .addItem('④ FBを個別に修正', 'reviseFeedback'))
+      .addItem('④-1 FBを個別に修正 (セットアップ)', 'reviseFeedback_SETUP')
+      .addItem('④-2 FBを個別に修正 (実行)', 'reviseFeedback_PROCESS'))
     .addSeparator()
 
     // --- イラスト生成フェーズ ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('🎨 イラスト生成')
-      .addItem('⑤ イラスト用プロンプト案を生成 (prompt4)', 'createIllustrationPrompts')
-      .addItem('⑥ イラストを一括生成 (prompt5)', 'createImages'))
+      .addItem('⑤-1 イラスト用プロンプト案を生成 (セットアップ)', 'createIllustrationPrompts_SETUP')
+      .addItem('⑤-2 イラスト用プロンプト案を生成 (実行)', 'createIllustrationPrompts_PROCESS')
+      .addSeparator()
+      .addItem('⑥-1 イラストを一括生成 (セットアップ)', 'createImages_SETUP')
+      .addItem('⑥-2 イラストを一括生成 (実行)', 'createImages_PROCESS'))
     .addSeparator()
 
     // --- スライド生成フェーズ ---
