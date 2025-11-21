@@ -44,7 +44,9 @@ function onOpen() {
       .addItem('1-3 スライド生成(詳細情報)のセットアップ', 'createSlideDetailTR_SETUP')
       .addItem('1-4 スライド生成(詳細情報)の実行', 'createSlides_PROCESS')
       .addItem('2-1 スライド生成(まとめ一覧)のセットアップ', 'createSlideSummaryTR_SETUP')
-      .addItem('2-2 スライド生成(まとめ一覧)の実行', 'createSlides_PROCESS'))
+      .addItem('2-2 スライド生成(まとめ一覧)の実行', 'createSlides_PROCESS')
+      .addSeparator()
+      .addItem('🎨 行ごとの画像生成', 'generateRowImages'))
 
     .addToUi();
 }

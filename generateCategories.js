@@ -1060,3 +1060,172 @@ function _parseNumberRangeString(rangeString) {
   }
   return Array.from(numbers); // Setを配列に変換して返す
 }
+
+/**
+ * [ヘルパー関数] Google DriveのフォルダURLからフォルダIDを抽出する
+ * @param {string} folderUrl - Google DriveのフォルダURL
+ * @return {string | null} - フォルダID、見つからない場合はnull
+ */
+function _extractFolderIdFromUrl(folderUrl) {
+  if (!folderUrl || typeof folderUrl !== 'string') return null;
+  let id = null;
+  // 標準的なフォルダURL (.../folders/ID)
+  let match = folderUrl.match(/folders\/([a-zA-Z0-9_-]{25,})/);
+  if (match && match[1]) {
+    id = match[1];
+  } else {
+    // 共有リンクURL (...?id=ID)
+    match = folderUrl.match(/[?&]id=([a-zA-Z0-9_-]{25,})/);
+    if (match && match[1]) {
+      id = match[1];
+    }
+  }
+  // Google DriveのIDは通常25文字以上
+  return (id && id.length >= 25) ? id : null;
+}
+
+/**
+ * 「カテゴリごとに知見生成」シートの設定に基づいて、
+ * 指定されたシートの各行を画像生成用プロンプトとして使用し、
+ * 生成した画像を各行の最右列に挿入する関数
+ *
+ * 設定:
+ * - C33セル: 画像生成用のベースプロンプト
+ * - C18セル: 画像生成対象のシート名
+ */
+function generateRowImages() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    ss.toast('行ごとの画像生成を開始します...', '開始', 5);
+
+    // --- 1. 設定情報を取得 ---
+    const knowledgeSheet = ss.getSheetByName('カテゴリごとに知見生成');
+    if (!knowledgeSheet) {
+      throw new Error('シート「カテゴリごとに知見生成」が見つかりません。');
+    }
+
+    // C33: 画像生成用のベースプロンプト
+    const basePrompt = knowledgeSheet.getRange('C33').getValue();
+    if (!basePrompt) {
+      throw new Error('C33セルに画像生成用のプロンプトが設定されていません。');
+    }
+
+    // C18: 画像生成対象のシート名
+    const targetSheetName = knowledgeSheet.getRange('C18').getValue();
+    if (!targetSheetName) {
+      throw new Error('C18セルに画像生成対象のシート名が設定されていません。');
+    }
+
+    const targetSheet = ss.getSheetByName(targetSheetName);
+    if (!targetSheet) {
+      throw new Error(`画像生成対象シート「${targetSheetName}」が見つかりません。`);
+    }
+
+    // 保存先フォルダURL（オプション）- promptシートのC13セルから取得
+    const outputFolderUrl = promptSheet.getRange(imageSaveDir_pos).getValue();
+    let outputFolder = null;
+    if (outputFolderUrl) {
+      const folderId = _extractFolderIdFromUrl(outputFolderUrl);
+      if (folderId) {
+        try {
+          outputFolder = DriveApp.getFolderById(folderId);
+          Logger.log(`保存先フォルダを指定: ${outputFolder.getName()} (ID: ${folderId})`);
+        } catch (e) {
+          Logger.log(`警告: 指定されたフォルダにアクセスできません。画像はシートにのみ挿入されます。`);
+        }
+      }
+    }
+
+    // --- 2. 対象シートのデータを読み込む ---
+    const allData = targetSheet.getDataRange().getValues();
+    if (allData.length === 0) {
+      throw new Error(`シート「${targetSheetName}」にデータがありません。`);
+    }
+
+    const header = allData[0];
+    const dataRows = allData.slice(1);
+
+    if (dataRows.length === 0) {
+      throw new Error(`シート「${targetSheetName}」にデータ行がありません（ヘッダーのみ）。`);
+    }
+
+    // --- 3. 画像を挿入する列を特定（最右列の次）---
+    const imageColumnIndex = header.length + 1; // 1-indexed
+    const imageHeaderName = '生成画像';
+
+    // ヘッダーに「生成画像」列を追加（まだ存在しない場合）
+    const existingImageHeader = targetSheet.getRange(1, imageColumnIndex).getValue();
+    if (!existingImageHeader || existingImageHeader !== imageHeaderName) {
+      targetSheet.getRange(1, imageColumnIndex).setValue(imageHeaderName).setFontWeight('bold');
+    }
+
+    // --- 4. 各行をループ処理して画像を生成 ---
+    let processCount = 0;
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      const rowIndex = i + 2; // シート上の行番号（1-indexed、ヘッダー分+1）
+      processCount++;
+
+      // 行データをCSV形式の文字列に変換
+      const rowCsvString = row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',');
+      const rowWithHeaderCsv = header.map(h => `"${String(h).replace(/"/g, '""')}"`).join(',') + '\n' + rowCsvString;
+
+      // プロンプトを構築
+      const finalPrompt = `${basePrompt}
+
+# 入力データ（CSV形式）
+以下のデータを基に画像を生成してください。
+---
+${rowWithHeaderCsv}
+---`;
+
+      ss.toast(`[${processCount}/${dataRows.length}] 行${rowIndex}の画像を生成中...`, 'API連携中', -1);
+
+      try {
+        // 画像生成APIを呼び出し
+        const base64Image = callGPTApi_(finalPrompt);
+
+        // (1) Google Driveに保存（フォルダが指定されている場合）
+        if (outputFolder) {
+          try {
+            const imageName = `${targetSheetName}_行${rowIndex}_${Utilities.formatDate(new Date(), 'JST', 'yyyyMMddHHmmss')}.png`;
+            const decodedBytes = Utilities.base64Decode(base64Image);
+            const imageBlob = Utilities.newBlob(decodedBytes, 'image/png', imageName);
+            const savedFile = outputFolder.createFile(imageBlob);
+            Logger.log(`画像を保存: ${savedFile.getName()} (URL: ${savedFile.getUrl()})`);
+          } catch (saveError) {
+            Logger.log(`警告: 行${rowIndex}の画像保存に失敗しました - ${saveError}`);
+          }
+        }
+
+        // (2) シートに画像を挿入
+        const dataUrl = `data:image/png;base64,${base64Image}`;
+        const cellImage = SpreadsheetApp.newCellImage().setSourceUrl(dataUrl).build();
+        targetSheet.getRange(rowIndex, imageColumnIndex).setValue(cellImage);
+
+        // 行の高さを調整
+        targetSheet.setRowHeight(rowIndex, 200);
+
+        // APIレート制限対策のため待機
+        if (i < dataRows.length - 1) {
+          Utilities.sleep(1000);
+        }
+
+      } catch (imageError) {
+        Logger.log(`エラー: 行${rowIndex}の画像生成に失敗しました - ${imageError}`);
+        targetSheet.getRange(rowIndex, imageColumnIndex).setValue('生成失敗');
+      }
+    }
+
+    // --- 5. 完了メッセージ ---
+    ss.toast('すべての画像生成が完了しました。', '完了', 5);
+    const folderMsg = outputFolder ? `\n保存先: ${outputFolder.getName()}` : '';
+    ui.alert('成功', `シート「${targetSheetName}」の各行に対する画像生成が完了しました。${folderMsg}`, ui.ButtonSet.OK);
+
+  } catch (e) {
+    Logger.log(e);
+    ss.toast('エラーが発生しました。', '失敗', 10);
+    ui.alert('処理中にエラーが発生しました。\n\n詳細:\n' + e.message, ui.ButtonSet.OK);
+  }
+}
