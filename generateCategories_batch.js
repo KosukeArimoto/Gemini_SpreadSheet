@@ -63,7 +63,12 @@ function generateCategories_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME,
+      menuItemName: '📊 分類・整理 > ①-2 分類リストを生成 (実行)',
+      processFunctionName: 'generateCategories_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -370,7 +375,12 @@ function mergeCategories_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: MERGE_CATEGORIES_WORK_LIST_SHEET_NAME,
+      menuItemName: '📊 分類・整理 > ②-2 データに分類を付与 (実行)',
+      processFunctionName: 'mergeCategories_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -657,7 +667,12 @@ function generateFeedback_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME,
+      menuItemName: '📝 設計FB > ③-2 設計FBを生成 (実行)',
+      processFunctionName: 'generateFeedback_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -964,7 +979,12 @@ function reviseFeedback_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: REVISE_FEEDBACK_WORK_LIST_SHEET_NAME,
+      menuItemName: '📝 設計FB > ④-2 FBを個別に修正 (実行)',
+      processFunctionName: 'reviseFeedback_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -1312,7 +1332,12 @@ function createIllustrationPrompts_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: ILLUSTRATION_PROMPTS_WORK_LIST_SHEET_NAME,
+      menuItemName: '🎨 イラスト生成 > ⑤-2 イラスト用プロンプト案を生成 (実行)',
+      processFunctionName: 'createIllustrationPrompts_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -1655,7 +1680,12 @@ function createImages_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: CREATE_IMAGES_WORK_LIST_SHEET_NAME,
+      menuItemName: '🎨 イラスト生成 > ⑥-2 イラストを一括生成 (実行)',
+      processFunctionName: 'createImages_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
