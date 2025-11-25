@@ -96,7 +96,12 @@ function freePrompt_SETUP() {
     outputSheet.getRange("A1").setValue("処理待機中...").setFontStyle('italic');
 
     ss.toast('セットアップが完了しました。', '完了', 5);
-    _showSetupCompletionDialog();
+    _showSetupCompletionDialog({
+      workSheetName: FREE_PROMPT_WORK_LIST_SHEET_NAME,
+      menuItemName: '🔍 Free Prompt > ⑧-2 Free Prompt (実行)',
+      processFunctionName: 'freePrompt_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);

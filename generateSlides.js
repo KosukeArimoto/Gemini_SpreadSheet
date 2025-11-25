@@ -7,7 +7,7 @@
  * [SETUP] 1行1スライド (Tomy) のセットアップ
  */
 function createSlideTomy_SETUP() {
-  const ui = SpreadsheetApp.getUi(); 
+  const ui = SpreadsheetApp.getUi();
   try {
     ss.toast('セットアップ (Tomy) を開始します...', '開始', 10);
     // --- 元の設定項目 ---
@@ -59,8 +59,13 @@ function createSlideTomy_SETUP() {
     if (workListData.length > 0) {
       workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
     }
-    
-    _showSetupCompletionDialog();
+
+    _showSetupCompletionDialog({
+      workSheetName: WORK_LIST_SHEET_NAME,
+      menuItemName: '📽️ スライド生成 > ⑦_2 スライド生成_TOMY（実行）',
+      processFunctionName: 'createSlides_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -138,8 +143,13 @@ function createSlideDetailTR_SETUP() {
     if (workListData.length > 0) {
       workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
     }
-    
-    _showSetupCompletionDialog();
+
+    _showSetupCompletionDialog({
+      workSheetName: WORK_LIST_SHEET_NAME,
+      menuItemName: '🌡️ 東海理科用 > 1-6 スライド生成(詳細情報)（実行）',
+      processFunctionName: 'createSlides_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
@@ -249,8 +259,13 @@ function createSlideSummaryTR_SETUP() {
     if (workListData.length > 0) {
       workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
     }
-    
-    _showSetupCompletionDialog();
+
+    _showSetupCompletionDialog({
+      workSheetName: WORK_LIST_SHEET_NAME,
+      menuItemName: '🌡️ 東海理科用 > 2-2 スライド生成(まとめ一覧)（実行）',
+      processFunctionName: 'createSlides_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);

@@ -99,7 +99,12 @@ function generateKnowledge_SETUP() {
     outputSheet.getRange("A1").setValue("処理待機中...").setFontStyle('italic');
 
     ss.toast('セットアップが完了しました。', '完了', 5);
-    ui.alert('セットアップ完了', `作業リスト（${KNOWLEDGE_WORK_LIST_SHEET_NAME}）を作成しました。\n\n次に、このスクリプトの「generateKnowledge_PROCESS」関数に対して「30分ごと」の時間ベーストリガーを設定してください。`, ui.ButtonSet.OK);
+    _showSetupCompletionDialog({
+      workSheetName: KNOWLEDGE_WORK_LIST_SHEET_NAME,
+      menuItemName: '🌡️ 東海理科用 > 1-2 詳細情報生成（実行）',
+      processFunctionName: 'generateKnowledge_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);

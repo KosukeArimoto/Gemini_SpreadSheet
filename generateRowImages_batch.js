@@ -113,11 +113,12 @@ function generateRowImages_SETUP() {
     // （毎回新しい列に画像を追加する可能性があるため、ここでは追加しない）
 
     // 完了メッセージ
-    ui.alert(
-      '✅ セットアップ完了',
-      `画像生成タスクを ${targetRows.length} 件作成しました。\n\n次に「🎨 行ごとの画像生成 (実行)」を実行してください。`,
-      ui.ButtonSet.OK
-    );
+    _showSetupCompletionDialog({
+      workSheetName: IMAGE_WORK_LIST_SHEET_NAME,
+      menuItemName: '🌡️ 東海理科用 > 1-4 行ごとの画像生成(実行)',
+      processFunctionName: 'generateRowImages_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     Logger.log(e);
