@@ -2,7 +2,7 @@
 /**
  * [STEP 1: 手動実行] 保全ナレッジ生成の「セットアップ」を行う関数
  * 1. データを読み込み、グループ化する
- * 2. 作業リスト（_詳細スライド生成作業リスト）シートを作成する
+ * 2. 作業リスト（_詳細情報生成作業リスト）シートを作成する
  * 3. 結果出力シート（保全ナレッジ_結果）を作成する
  */
 function generateKnowledge_SETUP() {
@@ -54,12 +54,12 @@ function generateKnowledge_SETUP() {
       throw new Error('作成されたグループが0件です。');
     }
 
-    // --- 5. 作業リスト（_詳細スライド生成作業リスト）シートを作成 ---
-    let workSheet = ss.getSheetByName(WORK_LIST_SHEET_NAME);
+    // --- 5. 作業リスト（_詳細情報生成作業リスト）シートを作成 ---
+    let workSheet = ss.getSheetByName(KNOWLEDGE_WORK_LIST_SHEET_NAME);
     if (workSheet) {
       workSheet.clear(); // 既存のシートをクリア
     } else {
-      workSheet = ss.insertSheet(WORK_LIST_SHEET_NAME, 0);
+      workSheet = ss.insertSheet(KNOWLEDGE_WORK_LIST_SHEET_NAME, 0);
     }
     
     const workHeader = ["GroupKey", "TargetRowNumbers (JSON)", "Status"];
@@ -99,7 +99,7 @@ function generateKnowledge_SETUP() {
     outputSheet.getRange("A1").setValue("処理待機中...").setFontStyle('italic');
 
     ss.toast('セットアップが完了しました。', '完了', 5);
-    ui.alert('セットアップ完了', `作業リスト（${WORK_LIST_SHEET_NAME}）を作成しました。\n\n次に、このスクリプトの「generateKnowledge_PROCESS」関数に対して「30分ごと」の時間ベーストリガーを設定してください。`, ui.ButtonSet.OK);
+    ui.alert('セットアップ完了', `作業リスト（${KNOWLEDGE_WORK_LIST_SHEET_NAME}）を作成しました。\n\n次に、このスクリプトの「generateKnowledge_PROCESS」関数に対して「30分ごと」の時間ベーストリガーを設定してください。`, ui.ButtonSet.OK);
 
   } catch (e) {
     Logger.log(e);
@@ -111,7 +111,7 @@ function generateKnowledge_SETUP() {
 
 /**
  * [STEP 2: トリガー実行] ナレッジ生成の「バッチ処理」を行うワーカー関数
- * 1. _詳細スライド生成作業リスト シートから「未処理」のタスクを取得
+ * 1. _詳細情報生成作業リスト シートから「未処理」のタスクを取得
  * 2. 時間の許す限りAPI処理を実行
  * 3. 処理結果を 保全ナレッジ_結果 シートに追記
  */
@@ -121,12 +121,12 @@ function generateKnowledge_PROCESS() {
 
   try {
     // --- 1. 必要なシートと設定を取得 ---
-    const workSheet = ss.getSheetByName(WORK_LIST_SHEET_NAME);
+    const workSheet = ss.getSheetByName(KNOWLEDGE_WORK_LIST_SHEET_NAME);
     const outputSheet = ss.getSheetByName(OUTPUT_SHEET_NAME);
     const knowledgeConfigSheet = ss.getSheetByName('カテゴリごとに知見作成');
 
     if (!workSheet || !outputSheet || !knowledgeConfigSheet) {
-      Logger.log("必要なシート（_詳細スライド生成作業リスト, 保全ナレッジ_結果, カテゴリごとに知見作成）がありません。処理を終了します。");
+      Logger.log("必要なシート（_詳細情報生成作業リスト, 保全ナレッジ_結果, カテゴリごとに知見作成）がありません。処理を終了します。");
       return; // トリガーなのでエラーは出さずに終了
     }
 

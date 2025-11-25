@@ -34,8 +34,13 @@ const tokaiPromptSheet = ss.getSheetByName('カテゴリごとに知見作成');
 // 2つの関数で共有するシート名
 const knowledgeConfigSheet = ss.getSheetByName('カテゴリごとに知見作成'); // 新しい設定シート
 const inputSheetName = knowledgeConfigSheet.getRange('C6').getValue(); // 入力シート名をC6から取得
-const WORK_LIST_SHEET_NAME = "_詳細スライド生成作業リスト"; // 作業リストを管理するシート
+
+// 詳細情報生成用（東海理科）
+const KNOWLEDGE_WORK_LIST_SHEET_NAME = "_詳細情報生成作業リスト"; // 詳細情報生成の作業リスト
 const OUTPUT_SHEET_NAME = `保全ナレッジ_結果`  // 最終的な結果を追記していくシート
+
+// スライド生成用（共通）
+const WORK_LIST_SHEET_NAME = "_詳細スライド生成作業リスト"; // スライド生成の作業リストを管理するシート
 
 // Free Prompt用
 const FREE_PROMPT_WORK_LIST_SHEET_NAME = "_Free Prompt作業リスト"; // Free Prompt作業リスト
