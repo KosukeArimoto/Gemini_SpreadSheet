@@ -807,6 +807,10 @@ ${csvChunk}`;
           previousFeedbackForPrompt += resultText + "\n";
           batchNumber++;
 
+          // 🔥 各API呼び出しの直後に中間結果を保存（タイムアウト時のデータロスを防ぐ）
+          _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, categoryMarkdown);
+          Logger.log(`  バッチ ${batchNumber} の結果を中間シートに保存しました`);
+
           const newFeedbackData = parseMarkdownTable_(resultText);
           if (newFeedbackData.length <= 1 || resultText.includes('続きなし')) {
             continueProcessingCategory = false;
@@ -815,9 +819,7 @@ ${csvChunk}`;
           Utilities.sleep(1000);
         }
 
-        // カテゴリの処理完了、結果を中間結果シートに保存
-        _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, categoryMarkdown);
-
+        // whileループ完了 = カテゴリの処理が正常終了
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
         processedCountInThisRun++;
