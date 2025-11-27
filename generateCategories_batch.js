@@ -6,6 +6,7 @@
 const GENERATE_CATEGORIES_WORK_LIST_SHEET_NAME = "_分類リスト生成作業リスト";
 const MERGE_CATEGORIES_WORK_LIST_SHEET_NAME = "_分類付与作業リスト";
 const GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME = "_設計FB生成作業リスト";
+const GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME = "_設計FB中間結果"; // 50,000文字制限回避用
 const REVISE_FEEDBACK_WORK_LIST_SHEET_NAME = "_形式知修正作業リスト";
 const ILLUSTRATION_PROMPTS_WORK_LIST_SHEET_NAME = "_イラストプロンプト作業リスト";
 const CREATE_IMAGES_WORK_LIST_SHEET_NAME = "_画像生成作業リスト";
@@ -667,6 +668,22 @@ function generateFeedback_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
+    // --- 5. 中間結果シートを作成（50,000文字制限回避用）---
+    let tempResultsSheet = ss.getSheetByName(GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME);
+    if (tempResultsSheet) {
+      tempResultsSheet.clear();
+    } else {
+      tempResultsSheet = ss.insertSheet(GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME, 0);
+    }
+
+    // ヘッダーを設定
+    const tempHeader = ["カテゴリ名", "フィードバック内容", "処理済み"];
+    tempResultsSheet.getRange(1, 1, 1, 3).setValues([tempHeader]).setFontWeight('bold');
+    tempResultsSheet.setTabColor('#cccccc'); // グレー
+    tempResultsSheet.setColumnWidth(2, 500); // フィードバック内容列を広く
+
+    Logger.log(`中間結果シート「${GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME}」を作成しました。`);
+
     _showSetupCompletionDialog({
       workSheetName: GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME,
       menuItemName: '📝 設計FB > ③-2 設計FBを生成 (実行)',
@@ -694,13 +711,20 @@ function generateFeedback_PROCESS() {
     return;
   }
 
+  // 中間結果シートを取得
+  const tempResultsSheet = ss.getSheetByName(GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME);
+  if (!tempResultsSheet) {
+    Logger.log("中間結果シートが見つかりません。SETUPを先に実行してください。");
+    return;
+  }
+
   // --- 1. 共通設定を作業シートから取得 ---
   const inputSheetName = workSheet.getRange("E1").getValue();
   const basePromptTemplate = workSheet.getRange("F1").getValue();
   const headerJson = workSheet.getRange("G1").getValue();
 
-  // これまでのフィードバック結果を取得（L1セルに保存）
-  let previousFeedbackForPrompt = workSheet.getRange("L1").getValue() || "";
+  // これまでのフィードバック結果を中間結果シートから取得
+  let previousFeedbackForPrompt = _loadPreviousFeedbackFromTempSheet(tempResultsSheet);
 
   if (!inputSheetName || !basePromptTemplate) {
     Logger.log("作業シート E1, F1 に設定情報がありません。SETUPを先に実行してください。");
@@ -725,8 +749,7 @@ function generateFeedback_PROCESS() {
       // 動的タイムアウトチェック：次のタスクを実行可能かを判定
       if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
         Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
-        // これまでの結果をL1セルに保存
-        workSheet.getRange("L1").setValue(combinedMarkdownResponse);
+        // 中間結果は既にtempResultsSheetに保存済みなので、ここでは何もしない
         break;
       }
 
@@ -758,8 +781,7 @@ function generateFeedback_PROCESS() {
           // 時間チェック（whileループ内も動的チェック）
           if (!_shouldContinueProcessing(startTime, taskExecutionTimes, 2.0)) {
             Logger.log(`時間上限に近づいたため、カテゴリ「${categoryName}」の処理を中断します。`);
-            // このカテゴリは未完了のまま保存
-            workSheet.getRange("L1").setValue(combinedMarkdownResponse);
+            // 中間結果は既にtempResultsSheetに保存済み
             throw new Error("時間制限により中断");
           }
 
@@ -793,8 +815,8 @@ ${csvChunk}`;
           Utilities.sleep(1000);
         }
 
-        // カテゴリの処理完了、結果を作業シートに保存（E列）
-        workSheet.getRange(sheetRow, 5).setValue(categoryMarkdown);
+        // カテゴリの処理完了、結果を中間結果シートに保存
+        _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, categoryMarkdown);
 
         // ステータスを「完了」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
@@ -817,9 +839,8 @@ ${csvChunk}`;
         const taskDuration = taskEndTime - taskStartTime;
         taskExecutionTimes.push(taskDuration);
 
-        // エラーが発生した場合、現在までの結果を保存
-        workSheet.getRange("L1").setValue(combinedMarkdownResponse);
-        break; // エラー発生時は処理を中断
+        // エラー発生時は処理を中断（中間結果は既にtempResultsSheetに保存済み）
+        break;
       }
     }
   }
@@ -840,11 +861,13 @@ ${csvChunk}`;
   if (remainingTasks === 0) {
     Logger.log("✅ すべてのタスクが完了しました！");
 
-    // 完了時に最終結果を新しいシートに出力
-    _outputGenerateFeedbackResults(workSheet, combinedMarkdownResponse);
+    // 完了時に中間結果シートから全データを読み込んで最終結果を出力
+    const allResults = _loadAllResultsFromTempSheet(tempResultsSheet);
+    _outputGenerateFeedbackResults(workSheet, allResults);
 
-    // L1セルの一時データをクリア
-    workSheet.getRange("L1").clearContent();
+    // 中間結果シートを削除（または保持する場合はコメントアウト）
+    ss.deleteSheet(tempResultsSheet);
+    Logger.log("中間結果シートを削除しました。");
 
     SpreadsheetApp.getActiveSpreadsheet().toast(
       'すべての設計FB生成が完了し、結果を出力しました。',
@@ -852,9 +875,6 @@ ${csvChunk}`;
       10
     );
   } else {
-    // 未完了の場合、現在の結果をL1に保存
-    workSheet.getRange("L1").setValue(combinedMarkdownResponse);
-
     Logger.log(`残りタスク数: ${remainingTasks}`);
     SpreadsheetApp.getActiveSpreadsheet().toast(
       `処理中... 残り ${remainingTasks} 件`,
@@ -1896,6 +1916,80 @@ function _createImagesWorkSheet(imagePromptSheetName, promt5, outputFolderUrl, n
 
   workSheet.autoResizeColumn(1);
   return workSheet;
+}
+
+// ===================================================================
+// 設計FB生成用ヘルパー関数（50,000文字制限対応）
+// ===================================================================
+
+/**
+ * 中間結果シートからこれまでのフィードバック結果を読み込む
+ * @param {Sheet} tempResultsSheet - 中間結果シート
+ * @return {string} - 前回までのフィードバック結果（Markdown形式）
+ */
+function _loadPreviousFeedbackFromTempSheet(tempResultsSheet) {
+  const lastRow = tempResultsSheet.getLastRow();
+  if (lastRow < 2) {
+    return ""; // ヘッダーのみの場合は空
+  }
+
+  const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const processedResults = data.filter(row => row[2] === true); // 処理済みのみ
+
+  if (processedResults.length === 0) {
+    return "";
+  }
+
+  // フィードバック内容を結合
+  return processedResults.map(row => row[1]).join('\n\n');
+}
+
+/**
+ * カテゴリの処理結果を中間結果シートに保存
+ * @param {Sheet} tempResultsSheet - 中間結果シート
+ * @param {string} categoryName - カテゴリ名
+ * @param {string} markdown - フィードバック内容（Markdown形式）
+ */
+function _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, markdown) {
+  const lastRow = tempResultsSheet.getLastRow();
+
+  // 既存のカテゴリを検索
+  let targetRow = -1;
+  if (lastRow >= 2) {
+    const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] === categoryName) {
+        targetRow = i + 2; // 実際のシート行番号
+        break;
+      }
+    }
+  }
+
+  if (targetRow !== -1) {
+    // 既存のカテゴリを更新
+    tempResultsSheet.getRange(targetRow, 2).setValue(markdown);
+    tempResultsSheet.getRange(targetRow, 3).setValue(true);
+    Logger.log(`カテゴリ「${categoryName}」の結果を更新しました（行${targetRow}）`);
+  } else {
+    // 新しいカテゴリを追加
+    tempResultsSheet.appendRow([categoryName, markdown, true]);
+    Logger.log(`カテゴリ「${categoryName}」の結果を追加しました`);
+  }
+}
+
+/**
+ * 中間結果シートから全結果を読み込む
+ * @param {Sheet} tempResultsSheet - 中間結果シート
+ * @return {string} - 全フィードバック結果（Markdown形式）
+ */
+function _loadAllResultsFromTempSheet(tempResultsSheet) {
+  const lastRow = tempResultsSheet.getLastRow();
+  if (lastRow < 2) {
+    return "";
+  }
+
+  const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  return data.map(row => row[1]).join('\n\n');
 }
 
 // ===================================================================
