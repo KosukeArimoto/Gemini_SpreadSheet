@@ -181,6 +181,7 @@ function extractGoogleDriveId_(url) {
  * @param {string} config.menuItemName - タブUI上で選ぶべき項目名称
  * @param {string} config.processFunctionName - トリガーから選ぶべき関数名称
  * @param {boolean} [config.useManualExecution=true] - 手動実行を推奨するか（false の場合はトリガー設定を推奨）
+ * @param {string} [config.tempResultsSheetName] - 中間結果シート名（処理状況確認用）
  */
 function _showSetupCompletionDialog(config) {
   const ui = SpreadsheetApp.getUi();
@@ -189,12 +190,19 @@ function _showSetupCompletionDialog(config) {
     workSheetName,
     menuItemName,
     processFunctionName,
-    useManualExecution = true
+    useManualExecution = true,
+    tempResultsSheetName
   } = config;
 
   let message = `✅ タスクの準備が完了しました。\n\n`;
-  message += `📋 作成されたシート: 「${workSheetName}」\n\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `📋 作成されたシート: 「${workSheetName}」\n`;
+
+  if (tempResultsSheetName) {
+    message += `📊 中間結果シート: 「${tempResultsSheetName}」\n`;
+    message += `   ※ 処理中の状況はこのシートで確認できます\n`;
+  }
+
+  message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
   message += `📌 次の手順:\n\n`;
 
   if (useManualExecution) {

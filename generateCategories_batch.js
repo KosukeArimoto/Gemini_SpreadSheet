@@ -668,7 +668,7 @@ function generateFeedback_SETUP() {
       workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
     }
 
-    // --- 5. 中間結果シートを作成（50,000文字制限回避用）---
+    // --- 5. 中間結果シートを作成（50,000文字制限回避用：複数行構造）---
     let tempResultsSheet = ss.getSheetByName(GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME);
     if (tempResultsSheet) {
       tempResultsSheet.clear();
@@ -676,19 +676,20 @@ function generateFeedback_SETUP() {
       tempResultsSheet = ss.insertSheet(GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME, 0);
     }
 
-    // ヘッダーを設定
-    const tempHeader = ["カテゴリ名", "フィードバック内容", "処理済み"];
-    tempResultsSheet.getRange(1, 1, 1, 3).setValues([tempHeader]).setFontWeight('bold');
+    // ヘッダーを設定（複数行形式）
+    const tempHeader = ["カテゴリ名", "バッチ番号", "フィードバック内容", "処理済み"];
+    tempResultsSheet.getRange(1, 1, 1, 4).setValues([tempHeader]).setFontWeight('bold');
     tempResultsSheet.setTabColor('#cccccc'); // グレー
-    tempResultsSheet.setColumnWidth(2, 500); // フィードバック内容列を広く
+    tempResultsSheet.setColumnWidth(3, 500); // フィードバック内容列を広く
 
-    Logger.log(`中間結果シート「${GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME}」を作成しました。`);
+    Logger.log(`中間結果シート「${GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME}」を作成しました（複数行構造）。`);
 
     _showSetupCompletionDialog({
       workSheetName: GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME,
       menuItemName: '📝 設計FB > ③-2 設計FBを生成 (実行)',
       processFunctionName: 'generateFeedback_PROCESS',
-      useManualExecution: true
+      useManualExecution: true,
+      tempResultsSheetName: GENERATE_FEEDBACK_TEMP_RESULTS_SHEET_NAME
     });
 
   } catch (e) {
@@ -775,7 +776,6 @@ function generateFeedback_PROCESS() {
         // カテゴリ内で複数回API呼び出しを行う可能性がある
         let continueProcessingCategory = true;
         let batchNumber = 1;
-        let categoryMarkdown = "";
 
         while (continueProcessingCategory) {
           // 時間チェック（whileループ内も動的チェック）
@@ -802,14 +802,14 @@ ${previousFeedbackForPrompt}`;
 ${csvChunk}`;
 
           const resultText = callGemini_(prompt);
-          categoryMarkdown += resultText + "\n";
           combinedMarkdownResponse += resultText + "\n";
           previousFeedbackForPrompt += resultText + "\n";
-          batchNumber++;
 
-          // 🔥 各API呼び出しの直後に中間結果を保存（タイムアウト時のデータロスを防ぐ）
-          _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, categoryMarkdown);
+          // 🔥 各API呼び出しの直後に中間結果を保存（バッチごとに行を追加）
+          _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, batchNumber, resultText);
           Logger.log(`  バッチ ${batchNumber} の結果を中間シートに保存しました`);
+
+          batchNumber++;
 
           const newFeedbackData = parseMarkdownTable_(resultText);
           if (newFeedbackData.length <= 1 || resultText.includes('続きなし')) {
@@ -1925,7 +1925,7 @@ function _createImagesWorkSheet(imagePromptSheetName, promt5, outputFolderUrl, n
 // ===================================================================
 
 /**
- * 中間結果シートからこれまでのフィードバック結果を読み込む
+ * 中間結果シートからこれまでのフィードバック結果を読み込む（複数行形式対応）
  * @param {Sheet} tempResultsSheet - 中間結果シート
  * @return {string} - 前回までのフィードバック結果（Markdown形式）
  */
@@ -1935,32 +1935,33 @@ function _loadPreviousFeedbackFromTempSheet(tempResultsSheet) {
     return ""; // ヘッダーのみの場合は空
   }
 
-  const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  const processedResults = data.filter(row => row[2] === true); // 処理済みのみ
+  const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+  const processedResults = data.filter(row => row[3] === true); // 処理済みのみ（D列）
 
   if (processedResults.length === 0) {
     return "";
   }
 
-  // フィードバック内容を結合
-  return processedResults.map(row => row[1]).join('\n\n');
+  // フィードバック内容を結合（C列：フィードバック内容）
+  return processedResults.map(row => row[2]).join('\n\n');
 }
 
 /**
- * カテゴリの処理結果を中間結果シートに保存
+ * カテゴリの処理結果を中間結果シートに保存（複数行形式）
  * @param {Sheet} tempResultsSheet - 中間結果シート
  * @param {string} categoryName - カテゴリ名
- * @param {string} markdown - フィードバック内容（Markdown形式）
+ * @param {number} batchNumber - バッチ番号
+ * @param {string} markdown - フィードバック内容（Markdown形式、このバッチ分のみ）
  */
-function _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, markdown) {
+function _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, batchNumber, markdown) {
   const lastRow = tempResultsSheet.getLastRow();
 
-  // 既存のカテゴリを検索
+  // 同じカテゴリ・バッチ番号の既存行を検索
   let targetRow = -1;
   if (lastRow >= 2) {
-    const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 2).getValues();
     for (let i = 0; i < data.length; i++) {
-      if (data[i][0] === categoryName) {
+      if (data[i][0] === categoryName && data[i][1] === batchNumber) {
         targetRow = i + 2; // 実際のシート行番号
         break;
       }
@@ -1968,19 +1969,19 @@ function _saveCategoryResultToTempSheet(tempResultsSheet, categoryName, markdown
   }
 
   if (targetRow !== -1) {
-    // 既存のカテゴリを更新
-    tempResultsSheet.getRange(targetRow, 2).setValue(markdown);
-    tempResultsSheet.getRange(targetRow, 3).setValue(true);
-    Logger.log(`カテゴリ「${categoryName}」の結果を更新しました（行${targetRow}）`);
+    // 既存のバッチを更新（通常は発生しないが念のため）
+    tempResultsSheet.getRange(targetRow, 3).setValue(markdown);
+    tempResultsSheet.getRange(targetRow, 4).setValue(true);
+    Logger.log(`カテゴリ「${categoryName}」バッチ ${batchNumber} の結果を更新しました（行${targetRow}）`);
   } else {
-    // 新しいカテゴリを追加
-    tempResultsSheet.appendRow([categoryName, markdown, true]);
-    Logger.log(`カテゴリ「${categoryName}」の結果を追加しました`);
+    // 新しいバッチを追加
+    tempResultsSheet.appendRow([categoryName, batchNumber, markdown, true]);
+    Logger.log(`カテゴリ「${categoryName}」バッチ ${batchNumber} の結果を追加しました`);
   }
 }
 
 /**
- * 中間結果シートから全結果を読み込む
+ * 中間結果シートから全結果を読み込む（複数行形式対応）
  * @param {Sheet} tempResultsSheet - 中間結果シート
  * @return {string} - 全フィードバック結果（Markdown形式）
  */
@@ -1990,8 +1991,31 @@ function _loadAllResultsFromTempSheet(tempResultsSheet) {
     return "";
   }
 
-  const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  return data.map(row => row[1]).join('\n\n');
+  const data = tempResultsSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+
+  // カテゴリ名でグループ化してソート、バッチ番号順に結合
+  const categoryMap = {};
+  data.forEach(row => {
+    const categoryName = row[0];
+    const batchNumber = row[1];
+    const feedback = row[2];
+
+    if (!categoryMap[categoryName]) {
+      categoryMap[categoryName] = [];
+    }
+    categoryMap[categoryName].push({ batchNumber, feedback });
+  });
+
+  // 各カテゴリ内でバッチ番号順にソート
+  const result = [];
+  Object.keys(categoryMap).forEach(categoryName => {
+    const batches = categoryMap[categoryName];
+    batches.sort((a, b) => a.batchNumber - b.batchNumber);
+    const categoryFeedback = batches.map(b => b.feedback).join('\n\n');
+    result.push(categoryFeedback);
+  });
+
+  return result.join('\n\n');
 }
 
 // ===================================================================
