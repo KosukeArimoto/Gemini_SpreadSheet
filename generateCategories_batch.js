@@ -650,22 +650,21 @@ function generateFeedback_SETUP() {
     });
 
     // --- 4. 作業シート作成 & タスク書き込み ---
-    const workSheet = _createGenerateFeedbackWorkSheet(inputSheetName, basePrompt, JSON.stringify(header));
+    // TaskData列を削除し、カテゴリ名のみ保存（50,000文字制限回避）
+    const workSheet = _createGenerateFeedbackWorkSheet(inputSheetName, basePrompt, JSON.stringify(header), inputCategory);
     const workListData = [];
 
     const categories = Object.keys(groupedData);
     categories.forEach((categoryName, index) => {
-      const chunk = groupedData[categoryName];
       workListData.push([
         `Category_${index}_${categoryName}`, // TaskKey
-        JSON.stringify(chunk), // TaskData (カテゴリのデータ)
         STATUS_EMPTY, // Status
-        categoryName // カテゴリ名（参照用）
+        categoryName // カテゴリ名（PROCESS時に入力シートから該当データを抽出）
       ]);
     });
 
     if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 4).setValues(workListData);
+      workSheet.getRange(2, 1, workListData.length, 3).setValues(workListData);
     }
 
     // --- 5. 中間結果シートを作成（50,000文字制限回避用：複数行構造）---
@@ -720,23 +719,40 @@ function generateFeedback_PROCESS() {
   }
 
   // --- 1. 共通設定を作業シートから取得 ---
-  const inputSheetName = workSheet.getRange("E1").getValue();
-  const basePromptTemplate = workSheet.getRange("F1").getValue();
-  const headerJson = workSheet.getRange("G1").getValue();
+  const inputSheetName = workSheet.getRange("D1").getValue();
+  const basePromptTemplate = workSheet.getRange("E1").getValue();
+  const headerJson = workSheet.getRange("F1").getValue();
+  const inputCategoryColumn = workSheet.getRange("G1").getValue();
 
   // これまでのフィードバック結果を中間結果シートから取得
   let previousFeedbackForPrompt = _loadPreviousFeedbackFromTempSheet(tempResultsSheet);
 
   if (!inputSheetName || !basePromptTemplate) {
-    Logger.log("作業シート E1, F1 に設定情報がありません。SETUPを先に実行してください。");
+    Logger.log("作業シート D1, E1 に設定情報がありません。SETUPを先に実行してください。");
     return;
   }
 
   const header = JSON.parse(headerJson);
   const basePrompt = _replacePrompts(basePromptTemplate);
 
+  // --- 1.5. 入力シートからデータを読み込む（都度読み込み方式）---
+  const inputSheet = ss.getSheetByName(inputSheetName);
+  if (!inputSheet) {
+    Logger.log(`入力シート「${inputSheetName}」が見つかりません。`);
+    return;
+  }
+  const allInputData = inputSheet.getDataRange().getValues();
+  const inputHeader = allInputData[0];
+  const inputData = allInputData.slice(1);
+  const categoryColumnIndex = inputHeader.indexOf(inputCategoryColumn);
+
+  if (categoryColumnIndex === -1) {
+    Logger.log(`入力シートのヘッダーに「${inputCategoryColumn}」列が見つかりません。`);
+    return;
+  }
+
   // --- 2. 未処理のタスクを検索 ---
-  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 4);
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 3);
   const workValues = workRange.getValues();
 
   let processedCountInThisRun = 0;
@@ -744,7 +760,7 @@ function generateFeedback_PROCESS() {
 
   // --- 3. バッチ処理ループ ---
   for (let i = 0; i < workValues.length; i++) {
-    const currentStatus = workValues[i][2]; // C列: Status
+    const currentStatus = workValues[i][1]; // B列: Status（列が変わった）
 
     if (currentStatus === STATUS_EMPTY) {
       // 動的タイムアウトチェック：次のタスクを実行可能かを判定
@@ -757,16 +773,22 @@ function generateFeedback_PROCESS() {
       const taskStartTime = new Date().getTime();
       const sheetRow = i + 2;
       const taskKey = workValues[i][0];
-      const categoryName = workValues[i][3];
+      const categoryName = workValues[i][2]; // C列: カテゴリ名（列が変わった）
 
       try {
         // ステータスを「処理中」に更新
-        workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
+        workSheet.getRange(sheetRow, 2).setValue(STATUS_PROCESSING); // B列に変更
 
-        // タスクデータを解析
-        const chunk = JSON.parse(workValues[i][1]);
+        // 入力シートから該当カテゴリのデータを抽出（都度読み込み）
+        const chunk = inputData.filter(row => row[categoryColumnIndex] === categoryName);
 
-        Logger.log(`[${processedCountInThisRun + 1}] カテゴリ「${categoryName}」を分析中...`);
+        if (chunk.length === 0) {
+          Logger.log(`カテゴリ「${categoryName}」のデータが見つかりません。スキップします。`);
+          workSheet.getRange(sheetRow, 2).setValue(STATUS_DONE);
+          continue;
+        }
+
+        Logger.log(`[${processedCountInThisRun + 1}] カテゴリ「${categoryName}」を分析中... (${chunk.length}行)`);
 
         // CSVに変換
         const csvChunk = [header].concat(chunk).map(row =>
@@ -821,7 +843,7 @@ ${csvChunk}`;
 
         // whileループ完了 = カテゴリの処理が正常終了
         // ステータスを「完了」に更新
-        workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
+        workSheet.getRange(sheetRow, 2).setValue(STATUS_DONE); // B列に変更
         processedCountInThisRun++;
 
         // このタスクの実行時間を記録
@@ -834,7 +856,7 @@ ${csvChunk}`;
 
       } catch (e) {
         Logger.log(`タスク \"${taskKey}\" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
-        workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+        workSheet.getRange(sheetRow, 2).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`); // B列に変更
 
         // エラーの場合も実行時間を記録
         const taskEndTime = new Date().getTime();
@@ -851,10 +873,10 @@ ${csvChunk}`;
   SpreadsheetApp.flush();
 
   // --- 4. 完了チェック ---
-  const lastRow = workSheet.getLastRow();
+  const lastRowForCheck = workSheet.getLastRow();
   let remainingTasks = 0;
-  if (lastRow >= 2) {
-    const newStatusValues = workSheet.getRange(2, 3, lastRow - 1, 1).getValues();
+  if (lastRowForCheck >= 2) {
+    const newStatusValues = workSheet.getRange(2, 2, lastRowForCheck - 1, 1).getValues(); // B列に変更
     remainingTasks = newStatusValues.filter(
       row => row[0] === STATUS_EMPTY || row[0] === STATUS_PROCESSING
     ).length;
@@ -889,7 +911,7 @@ ${csvChunk}`;
 /**
  * [ヘルパー関数] generateFeedback用の作業シートを作成
  */
-function _createGenerateFeedbackWorkSheet(inputSheetName, prompt3, headerJson) {
+function _createGenerateFeedbackWorkSheet(inputSheetName, prompt3, headerJson, inputCategoryColumn) {
   let workSheet = ss.getSheetByName(GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME);
   if (workSheet) {
     workSheet.clear();
@@ -897,16 +919,15 @@ function _createGenerateFeedbackWorkSheet(inputSheetName, prompt3, headerJson) {
     workSheet = ss.insertSheet(GENERATE_FEEDBACK_WORK_LIST_SHEET_NAME, 0);
   }
 
-  const workHeader = ["TaskKey", "TaskData", "Status", "Category", "Result"];
+  // TaskData列を削除し、カテゴリ名のみ保存（50,000文字制限回避）
+  const workHeader = ["TaskKey", "Status", "Category"];
   workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
 
-  // E1, F1, G1 に実行時に必要な情報を保存
-  workSheet.getRange("E1").setValue(inputSheetName);
-  workSheet.getRange("F1").setValue(prompt3);
-  workSheet.getRange("G1").setValue(headerJson);
-
-  // L1: これまでのフィードバック結果を保存（継続実行用）
-  workSheet.getRange("L1").setValue("");
+  // D1, E1, F1, G1 に実行時に必要な情報を保存
+  workSheet.getRange("D1").setValue(inputSheetName);
+  workSheet.getRange("E1").setValue(prompt3);
+  workSheet.getRange("F1").setValue(headerJson);
+  workSheet.getRange("G1").setValue(inputCategoryColumn); // カテゴリ列名を保存
 
   // タブの色をグレーに設定
   workSheet.setTabColor('#999999');
