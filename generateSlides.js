@@ -1,77 +1,7 @@
 
 // ===================================================================
-// STEP 1: SETUP関数 (元の3つの関数を改修)
+// STEP 1: SETUP関数
 // ===================================================================
-
-/**
- * [SETUP] 1行1スライド (Tomy) のセットアップ
- */
-function createSlideTomy_SETUP() {
-  const ui = SpreadsheetApp.getUi();
-  try {
-    ss.toast('セットアップ (Tomy) を開始します...', '開始', 10);
-    // --- 元の設定項目 ---
-    const SLIDES_TEMPLATE_ID = '1RPrTyIdDZmifD_EXR96g6GNKjAOOpbbMSK-sTHUbVto';
-    const TEMPLATE_SLIDE_INDEX = 0;
-    const ALT_TEXT_TITLE_MAP = {
-      'placeholder_design_point': 2, 'placeholder_details': 3, 'placeholder_past_case': 8,
-      'placeholder_title': 1, 'placeholder_category': 5, 'placeholder_part': 6,
-      'placeholder_failure_mode': 7, 'placeholder_importance': 4,
-    };
-    const IMAGE_ALT_TEXT_TITLE = 'placeholder_image';
-    const ILLUSTRATION_COLUMN_INDEX = 11;
-    const combineRows = false;
-    const mode = 'Tomy';
-
-    // --- 1. 対象シート取得 (元のロジック) ---
-    const targetSheetName = promptSheet.getRange(generateSlidesSheetName_pos).getValue();
-    if (!targetSheetName) throw new Error(`promptシートのC13セルに対象シート名が入力されていません。`);
-    const sheet = ss.getSheetByName(targetSheetName);
-    if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
-
-    // --- 2. 新規プレゼンテーション作成 (createSlidesMainFuncから移植) ---
-    const newPresentationTitle = `詳細事例スライド_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
-    const presentationId = _createAndMovePresentation(newPresentationTitle); // ヘルパー関数化
-
-    // --- 3. データ行取得 ---
-    const allData = sheet.getDataRange().getValues();
-    const dataRows = allData.slice(1);
-    if (dataRows.length === 0) throw new Error('シートにデータが見つかりません（ヘッダーを除く）。');
-
-    // --- 4. 作業シート作成 & タスク書き込み ---
-    const workSheet = _createWorkSheet(presentationId, targetSheetName);
-    const workListData = [];
-
-    dataRows.forEach((row, index) => {
-      const rowNum = index + 2; // 実際のシート行番号
-      workListData.push([
-        `Row_${rowNum}`, // TaskKey
-        rowNum, // TaskData (行番号)
-        STATUS_EMPTY, // Status
-        mode, // Mode
-        presentationId, SLIDES_TEMPLATE_ID, TEMPLATE_SLIDE_INDEX, combineRows,
-        JSON.stringify(ALT_TEXT_TITLE_MAP),
-        IMAGE_ALT_TEXT_TITLE,
-        ILLUSTRATION_COLUMN_INDEX
-      ]);
-    });
-
-    if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
-    }
-
-    _showSetupCompletionDialog({
-      workSheetName: WORK_LIST_SHEET_NAME,
-      menuItemName: '📽️ スライド生成 > ⑦_2 スライド生成_TOMY（実行）',
-      processFunctionName: 'createSlides_PROCESS',
-      useManualExecution: true
-    });
-
-  } catch (e) {
-    Logger.log(e);
-    ui.alert(`セットアップエラー (Tomy):\n${e.message}`);
-  }
-}
 
 /**
  * [SETUP] 1行1スライド (DetailTR) のセットアップ
@@ -1049,5 +979,134 @@ function assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, gr
     Logger.log(`${newMasterListEntries.length} 件の新規IDをマスターリストに追記しました。`);
   } else {
     Logger.log(`新規に採番されたIDはありませんでした。`);
+  }
+}
+
+// ===================================================================
+// スライドテンプレートマスタ関連
+// ===================================================================
+
+/**
+ * スライドテンプレートマスタから設定を取得する
+ * マスタシート構造:
+ *   A列: GoogleスライドID (テンプレートID)
+ *   B列: テンプレート名
+ *   C列: スライドIndex
+ *   D列: ALT_TEXT_TITLE_MAP (JSON)
+ *   E列: IMAGE_ALT_TEXT
+ *   F列: IMAGE_COL_INDEX
+ *
+ * @param {string} templateId - GoogleスライドID
+ * @return {Object|null} テンプレート設定オブジェクト、見つからない場合はnull
+ */
+function _getSlideTemplateConfig(templateId) {
+  const masterSheet = ss.getSheetByName(SLIDE_TEMPLATE_MASTER_SHEET_NAME);
+  if (!masterSheet) {
+    throw new Error(`マスタシート「${SLIDE_TEMPLATE_MASTER_SHEET_NAME}」が見つかりません。`);
+  }
+
+  const lastRow = masterSheet.getLastRow();
+  if (lastRow < 2) {
+    throw new Error(`マスタシート「${SLIDE_TEMPLATE_MASTER_SHEET_NAME}」にテンプレートが登録されていません。`);
+  }
+
+  const data = masterSheet.getRange(2, 1, lastRow - 1, 6).getValues();
+
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0] === templateId) {
+      // E列・F列が空白の場合はfalseを設定（画像処理をスキップ）
+      const imageAltText = data[i][4] !== "" ? data[i][4] : false;
+      const imageColIndex = data[i][5] !== "" ? data[i][5] : false;
+
+      return {
+        templateId: data[i][0],           // A列: GoogleスライドID
+        templateName: data[i][1],         // B列: テンプレート名
+        slideIndex: data[i][2],           // C列: スライドIndex
+        altTextTitleMap: JSON.parse(data[i][3]), // D列: ALT_TEXT_TITLE_MAP (JSON)
+        imageAltText: imageAltText,       // E列: IMAGE_ALT_TEXT（空白ならfalse）
+        imageColIndex: imageColIndex      // F列: IMAGE_COL_INDEX（空白ならfalse）
+      };
+    }
+  }
+
+  return null; // 見つからない場合
+}
+
+/**
+ * [SETUP] テンプレートマスタを使用した汎用スライド生成セットアップ
+ * promptシートのC16セルからテンプレートID（GoogleスライドID）を取得
+ */
+function createSlideFromTemplate_SETUP() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    ss.toast('セットアップを開始します...', '開始', 10);
+
+    // --- 1. テンプレートIDをpromptシートから取得 ---
+    const templateId = promptSheet.getRange('C16').getValue();
+    if (!templateId) {
+      throw new Error('promptシートのC16セルにテンプレートID（GoogleスライドID）が入力されていません。');
+    }
+
+    // --- 2. マスタからテンプレート設定を取得 ---
+    const config = _getSlideTemplateConfig(templateId);
+    if (!config) {
+      throw new Error(`テンプレートID「${templateId}」がマスタシートに登録されていません。`);
+    }
+
+    Logger.log(`テンプレート「${config.templateName}」を使用します。`);
+
+    // --- 3. 対象シート取得 ---
+    const targetSheetName = promptSheet.getRange(generateSlidesSheetName_pos).getValue();
+    if (!targetSheetName) throw new Error(`promptシートのC13セルに対象シート名が入力されていません。`);
+    const sheet = ss.getSheetByName(targetSheetName);
+    if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
+
+    // --- 4. 新規プレゼンテーション作成 ---
+    const newPresentationTitle = `詳細事例スライド_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
+    const presentationId = _createAndMovePresentation(newPresentationTitle);
+
+    // --- 5. データ行取得 ---
+    const allData = sheet.getDataRange().getValues();
+    const dataRows = allData.slice(1);
+    if (dataRows.length === 0) throw new Error('シートにデータが見つかりません（ヘッダーを除く）。');
+
+    // --- 6. 作業シート作成 & タスク書き込み ---
+    const workSheet = _createWorkSheet(presentationId, targetSheetName);
+    const workListData = [];
+
+    const mode = 'Template'; // 汎用モード
+    const combineRows = false;
+
+    dataRows.forEach((_, index) => {
+      const rowNum = index + 2; // 実際のシート行番号
+      workListData.push([
+        `Row_${rowNum}`,                    // TaskKey
+        rowNum,                              // TaskData (行番号)
+        STATUS_EMPTY,                        // Status
+        mode,                                // Mode
+        presentationId,                      // PresentationID
+        config.templateId,                   // TemplateID
+        config.slideIndex,                   // TemplateIndex
+        combineRows,                         // CombineRows
+        JSON.stringify(config.altTextTitleMap), // AltTextMap (JSON)
+        config.imageAltText,                 // ImageAltText
+        config.imageColIndex                 // ImageColIndex
+      ]);
+    });
+
+    if (workListData.length > 0) {
+      workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
+    }
+
+    _showSetupCompletionDialog({
+      workSheetName: WORK_LIST_SHEET_NAME,
+      menuItemName: '📽️ スライド生成 > ⑦_2 スライド生成（実行）',
+      processFunctionName: 'createSlides_PROCESS',
+      useManualExecution: true
+    });
+
+  } catch (e) {
+    Logger.log(e);
+    ui.alert(`セットアップエラー:\n${e.message}`);
   }
 }

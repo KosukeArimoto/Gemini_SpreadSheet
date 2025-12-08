@@ -36,8 +36,8 @@ function onOpen() {
 
     // --- スライド生成フェーズ ---
     .addSubMenu(SpreadsheetApp.getUi().createMenu('📽️ スライド生成')
-      .addItem('⑦_1 スライド生成_TOMY（セットアップ）', 'createSlideTomy_SETUP')
-      .addItem('⑦_2 スライド生成_TOMY（実行）', 'createSlides_PROCESS'))
+      .addItem('⑦_1 スライド生成（セットアップ）', 'createSlideFromTemplate_SETUP')
+      .addItem('⑦_2 スライド生成（実行）', 'createSlides_PROCESS'))
     .addSeparator()
 
     // --- 自由分析 ---

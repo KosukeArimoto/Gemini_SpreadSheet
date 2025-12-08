@@ -41,6 +41,7 @@ const OUTPUT_SHEET_NAME = `保全ナレッジ_結果`  // 最終的な結果を�
 
 // スライド生成用（共通）
 const WORK_LIST_SHEET_NAME = "_詳細スライド生成作業リスト"; // スライド生成の作業リストを管理するシート
+const SLIDE_TEMPLATE_MASTER_SHEET_NAME = "Slide Template Master"; // スライドテンプレートのマスタシート
 
 // Free Prompt用
 const FREE_PROMPT_WORK_LIST_SHEET_NAME = "_Free Prompt作業リスト"; // Free Prompt作業リスト
