@@ -247,7 +247,7 @@ function createSlides_PROCESS() {
   }
 
   // --- 2. 未処理のタスクを検索 ---
-  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 11); // 11列分取得
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 12); // 12列分取得
   const workValues = workRange.getValues();
 
   let processedCountInThisRun = 0;
@@ -278,6 +278,7 @@ function createSlides_PROCESS() {
       const altTextMap = JSON.parse(workValues[i][8]);
       const imageAltText = workValues[i][9];
       const imageColIndex = workValues[i][10];
+      const conditionalBgColors = workValues[i][11] ? JSON.parse(workValues[i][11]) : null;
 
       let templateSlide; // テンプレートスライドはタスクごとに取得
 
@@ -303,7 +304,8 @@ function createSlides_PROCESS() {
             rowNum,
             altTextMap,
             imageAltText,
-            imageColIndex
+            imageColIndex,
+            conditionalBgColors
           );
 
         } else {
@@ -422,12 +424,21 @@ function createSlides_PROCESS() {
 /**
  * [新規] 1行1スライドの転記処理 (createSlidesMainFunc の
  * * * ブロックから移植)
+ * @param {SlidesApp.Presentation} presentation - 書き込み先のプレゼンテーション
+ * @param {SlidesApp.Slide} templateSlide - テンプレートスライド
+ * @param {Array} row - データ行
+ * @param {number} rowNumForLog - ログ用行番号
+ * @param {Object} altTextMap - 代替テキストと列インデックスのマッピング
+ * @param {string|false} imageAltText - 画像プレースホルダーの代替テキスト（falseの場合は画像処理スキップ）
+ * @param {number|false} imageColIndex - 画像データの列インデックス（falseの場合は画像処理スキップ）
+ * @param {Object|null} conditionalBgColors - 条件付き背景色設定（nullの場合は背景色処理スキップ）
+ *        例: {"placeholder_importance": {"設計技術": "#eb4164", "QCD向上": "#fff2cc"}}
  */
-function _transferSingleRowToSlide(presentation, templateSlide, row, rowNumForLog, altTextMap, imageAltText, imageColIndex) {
-  
+function _transferSingleRowToSlide(presentation, templateSlide, row, rowNumForLog, altTextMap, imageAltText, imageColIndex, conditionalBgColors) {
+
   // この関数内は、元の createSlidesMainFunc の `else` (1行1スライド) ブロックの
   // `try...catch` の中身とほぼ同じ
-  
+
   const newSlide = presentation.insertSlide(presentation.getSlides().length, templateSlide);
   const pageElements = newSlide.getPageElements();
 
@@ -445,7 +456,7 @@ function _transferSingleRowToSlide(presentation, templateSlide, row, rowNumForLo
     Logger.log(`警告(行 ${rowNumForLog}): 日付挿入処理でエラー - ${e}`);
   }
 
-  // --- テキスト置換 ---
+  // --- テキスト置換 & 条件付き背景色設定 ---
   for (const altTextTitle in altTextMap) {
     const colIndex = altTextMap[altTextTitle];
     if (colIndex >= 0 && colIndex < row.length) {
@@ -455,7 +466,22 @@ function _transferSingleRowToSlide(presentation, templateSlide, row, rowNumForLo
       }
       const shape = pageElements.find(el => el.getPageElementType() === SlidesApp.PageElementType.SHAPE && el.getTitle() === altTextTitle)?.asShape();
       if (shape && shape.getText) {
-        shape.getText().setText(String(replacementValue || ''));
+        const textValue = String(replacementValue || '');
+        shape.getText().setText(textValue);
+
+        // --- 条件付き背景色設定 ---
+        if (conditionalBgColors && conditionalBgColors[altTextTitle]) {
+          const colorMap = conditionalBgColors[altTextTitle];
+          if (colorMap[textValue]) {
+            const hexColor = colorMap[textValue];
+            try {
+              shape.getFill().setSolidFill(hexColor);
+              Logger.log(`行 ${rowNumForLog}: "${altTextTitle}" の背景色を ${hexColor} に設定しました（値: "${textValue}"）`);
+            } catch (colorError) {
+              Logger.log(`警告(行 ${rowNumForLog}): "${altTextTitle}" の背景色設定でエラー - ${colorError}`);
+            }
+          }
+        }
       } else {
         Logger.log(`警告: 行 ${rowNumForLog}: 代替テキスト "${altTextTitle}" が見つかりません。`);
       }
@@ -510,7 +536,7 @@ function _createWorkSheet(presentationId, targetSheetName) {
   const workHeader = [
     "TaskKey", "TaskData (JSON or RowNum)", "Status", "Mode",
     "PresentationID", "TemplateID", "TemplateIndex", "CombineRows",
-    "AltTextMap (JSON)", "ImageAltText", "ImageColIndex"
+    "AltTextMap (JSON)", "ImageAltText", "ImageColIndex", "ConditionalBgColors (JSON)"
   ];
   workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
   
@@ -995,6 +1021,8 @@ function assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, gr
  *   D列: ALT_TEXT_TITLE_MAP (JSON)
  *   E列: IMAGE_ALT_TEXT
  *   F列: IMAGE_COL_INDEX
+ *   G列: CONDITIONAL_BG_COLORS (JSON) - 条件付き背景色設定
+ *         例: {"placeholder_importance": {"設計技術": "#eb4164", "QCD向上": "#fff2cc"}}
  *
  * @param {string} templateId - GoogleスライドID
  * @return {Object|null} テンプレート設定オブジェクト、見つからない場合はnull
@@ -1010,13 +1038,15 @@ function _getSlideTemplateConfig(templateId) {
     throw new Error(`マスタシート「${SLIDE_TEMPLATE_MASTER_SHEET_NAME}」にテンプレートが登録されていません。`);
   }
 
-  const data = masterSheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  const data = masterSheet.getRange(2, 1, lastRow - 1, 7).getValues(); // 7列に拡張
 
   for (let i = 0; i < data.length; i++) {
     if (data[i][0] === templateId) {
       // E列・F列が空白の場合はfalseを設定（画像処理をスキップ）
       const imageAltText = data[i][4] !== "" ? data[i][4] : false;
       const imageColIndex = data[i][5] !== "" ? data[i][5] : false;
+      // G列が空白の場合はnullを設定（条件付き背景色なし）
+      const conditionalBgColors = data[i][6] !== "" ? JSON.parse(data[i][6]) : null;
 
       return {
         templateId: data[i][0],           // A列: GoogleスライドID
@@ -1024,7 +1054,8 @@ function _getSlideTemplateConfig(templateId) {
         slideIndex: data[i][2],           // C列: スライドIndex
         altTextTitleMap: JSON.parse(data[i][3]), // D列: ALT_TEXT_TITLE_MAP (JSON)
         imageAltText: imageAltText,       // E列: IMAGE_ALT_TEXT（空白ならfalse）
-        imageColIndex: imageColIndex      // F列: IMAGE_COL_INDEX（空白ならfalse）
+        imageColIndex: imageColIndex,     // F列: IMAGE_COL_INDEX（空白ならfalse）
+        conditionalBgColors: conditionalBgColors // G列: CONDITIONAL_BG_COLORS（空白ならnull）
       };
     }
   }
@@ -1090,12 +1121,13 @@ function createSlideFromTemplate_SETUP() {
         combineRows,                         // CombineRows
         JSON.stringify(config.altTextTitleMap), // AltTextMap (JSON)
         config.imageAltText,                 // ImageAltText
-        config.imageColIndex                 // ImageColIndex
+        config.imageColIndex,                // ImageColIndex
+        config.conditionalBgColors ? JSON.stringify(config.conditionalBgColors) : "" // ConditionalBgColors (JSON)
       ]);
     });
 
     if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
+      workSheet.getRange(2, 1, workListData.length, 12).setValues(workListData);
     }
 
     _showSetupCompletionDialog({
