@@ -3,13 +3,117 @@
 // STEP 1: SETUP関数
 // ===================================================================
 
+
 /**
- * [SETUP] 1行1スライド (DetailTR) のセットアップ
+ * [SETUP] テンプレートマスタを使用した汎用スライド生成セットアップ
+ * promptシートのC16セルからテンプレートID（GoogleスライドID）を取得
  */
-function createSlideDetailTR_SETUP() {
+function createSlideFromTemplate_SETUP() {
   const ui = SpreadsheetApp.getUi();
   try {
-    ss.toast('セットアップ (DetailTR) を開始します...', '開始', 10);
+    ss.toast('セットアップを開始します...', '開始', 10);
+
+    // --- 1. テンプレートIDをpromptシートから取得 ---
+    const templateId = promptSheet.getRange('C16').getValue();
+    if (!templateId) {
+      throw new Error('promptシートのC16セルにテンプレートID（GoogleスライドID）が入力されていません。');
+    }
+
+    // --- 2. マスタからテンプレート設定を取得 ---
+    const config = _getSlideTemplateConfig(templateId);
+    if (!config) {
+      throw new Error(`テンプレートID「${templateId}」がマスタシートに登録されていません。`);
+    }
+
+    Logger.log(`テンプレート「${config.templateName}」を使用します。`);
+    Logger.log(`conditionalBgColors設定: ${JSON.stringify(config.conditionalBgColors)}`);
+
+    // --- 3. 対象シート取得 ---
+    const targetSheetName = promptSheet.getRange(generateSlidesSheetName_pos).getValue();
+    if (!targetSheetName) throw new Error(`promptシートのC13セルに対象シート名が入力されていません。`);
+    const sheet = ss.getSheetByName(targetSheetName);
+    if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
+
+    // --- 4. 新規プレゼンテーション作成 ---
+    const newPresentationTitle = `詳細事例スライド_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
+    const presentationId = _createAndMovePresentation(newPresentationTitle);
+
+    // --- 5. データ行取得 ---
+    const allData = sheet.getDataRange().getValues();
+    const dataRows = allData.slice(1);
+    if (dataRows.length === 0) throw new Error('シートにデータが見つかりません（ヘッダーを除く）。');
+
+    // --- 6. 作業シート作成 & タスク書き込み ---
+    const workSheet = _createWorkSheet(presentationId, targetSheetName);
+    const workListData = [];
+
+    const mode = 'Template'; // 汎用モード
+    const combineRows = false;
+
+    dataRows.forEach((_, index) => {
+      const rowNum = index + 2; // 実際のシート行番号
+      workListData.push([
+        `Row_${rowNum}`,                    // TaskKey
+        rowNum,                              // TaskData (行番号)
+        STATUS_EMPTY,                        // Status
+        mode,                                // Mode
+        presentationId,                      // PresentationID
+        config.templateId,                   // TemplateID
+        config.slideIndex,                   // TemplateIndex
+        combineRows,                         // CombineRows
+        JSON.stringify(config.altTextTitleMap), // AltTextMap (JSON)
+        config.imageAltText,                 // ImageAltText
+        config.imageColIndex,                // ImageColIndex
+        config.conditionalBgColors ? JSON.stringify(config.conditionalBgColors) : "" // ConditionalBgColors (JSON)
+      ]);
+    });
+
+    if (workListData.length > 0) {
+      workSheet.getRange(2, 1, workListData.length, 12).setValues(workListData);
+    }
+
+    // シートへの書き込みを即座に完了
+    SpreadsheetApp.flush();
+
+    _showSetupCompletionDialog({
+      workSheetName: WORK_LIST_SHEET_NAME,
+      menuItemName: '📽️ スライド生成 > ⑦_2 スライド生成（実行）',
+      processFunctionName: 'createSlides_PROCESS',
+      useManualExecution: true
+    });
+
+  } catch (e) {
+    Logger.log(e);
+    ui.alert(`セットアップエラー:\n${e.message}`);
+  }
+}
+
+/**
+ * [SETUP] 1行1スライド (DetailTR) のセットアップ - 統合モード
+ * すべてのスライドを1つのプレゼンテーションに生成
+ */
+function createSlideDetailTR_Combined_SETUP() {
+  _createSlideDetailTR_SETUP_Internal(false); // 統合モード
+}
+
+/**
+ * [SETUP] 1行1スライド (DetailTR) のセットアップ - 分割モード
+ * グループごとに別々のプレゼンテーションを生成
+ */
+function createSlideDetailTR_Split_SETUP() {
+  _createSlideDetailTR_SETUP_Internal(true); // 分割モード
+}
+
+/**
+ * [内部] DetailTR セットアップの共通ロジック
+ * @param {boolean} isSplitMode - true: 分割モード, false: 統合モード
+ */
+function _createSlideDetailTR_SETUP_Internal(isSplitMode) {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const modeLabel = isSplitMode ? '分割モード' : '統合モード';
+    ss.toast(`セットアップ (DetailTR - ${modeLabel}) を開始します...`, '開始', 10);
+
     // --- 元の設定項目 ---
     const SLIDES_TEMPLATE_ID_TR = '1NYkmHwG4hHm8sadB_n15N6knXNGXtX3ZpLibePXfKS8';
     const TEMPLATE_SLIDE_INDEX_TR = 1;
@@ -20,63 +124,102 @@ function createSlideDetailTR_SETUP() {
       "placeholder_point_rough":9, "placeholder_equip_num":11,
       "placeholder_original_num":12,
     };
-    const IMAGE_ALT_TEXT_TITLE_TR = 'placeholder_image'; // 画像プレースホルダーのタイトル
-    const ILLUSTRATION_COLUMN_INDEX_TR = 13; // N列（0-indexed）
+    const IMAGE_ALT_TEXT_TITLE_TR = 'placeholder_image';
+    const ILLUSTRATION_COLUMN_INDEX_TR = 13;
     const combineRows = false;
     const mode = 'DetailTR';
     const groupingColumns = ["設備名称", "工程", "異常現象"];
+    const baseTitle = "詳細事例スライド";
 
-    // --- 1. 対象シート取得 (元のロジック) ---
+    // --- 1. 対象シート取得 ---
     const targetSheetName = tokaiPromptSheet.getRange("C12").getValue();
     if (!targetSheetName) throw new Error(`対象シート名が入力されていません。`);
     const sheet = ss.getSheetByName(targetSheetName);
     if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
 
-        // --- 2. ID採番 ---
+    // --- 2. ID採番 ---
     try {
       const masterSheetName = tokaiPromptSheet.getRange("C14").getValue();
-      const id_col=8;
-      const ID_PREFIX="DC-TY-";
-      assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, groupingColumns); 
+      const id_col = 8;
+      const ID_PREFIX = "DC-TY-";
+      assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, groupingColumns);
       SpreadsheetApp.getActiveSpreadsheet().toast('グループIDをA列に採番・更新しました。', 'ID採番完了', 3);
     } catch (e) {
       throw new Error(`ID採番中にエラーが発生しました: ${e.message}`);
     }
 
-    // --- 2. 新規プレゼンテーション作成 ---
-    const newPresentationTitle = `詳細事例スライド_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
-    const presentationId = _createAndMovePresentation(newPresentationTitle);
+    // --- 3. データをグループ化 ---
+    const { groupedData, allData } = _groupDataByColumns(sheet, groupingColumns);
+    if (groupedData.size === 0) throw new Error('グルーピング対象のデータが0件です。');
 
-    // --- 3. データ行取得 ---
-    const allData = sheet.getDataRange().getValues();
-    const dataRows = allData.slice(1);
-    if (dataRows.length === 0) throw new Error('シートにデータが見つかりません（ヘッダーを除く）。');
-
-    // --- 4. 作業シート作成 & タスク書き込み ---
-    const workSheet = _createWorkSheet(presentationId, targetSheetName);
+    const outputFolderUrl = promptSheet.getRange(slideSaveDir_pos).getValue();
+    let workSheet;
     const workListData = [];
 
-    dataRows.forEach((row, index) => {
-      const rowNum = index + 2; // 実際のシート行番号
-      workListData.push([
-        `Row_${rowNum}`, // TaskKey
-        rowNum, // TaskData (行番号)
-        STATUS_EMPTY, // Status
-        mode, // Mode
-        presentationId, SLIDES_TEMPLATE_ID_TR, TEMPLATE_SLIDE_INDEX_TR, combineRows,
-        JSON.stringify(ALT_TEXT_TITLE_MAP_TR),
-        IMAGE_ALT_TEXT_TITLE_TR,
-        ILLUSTRATION_COLUMN_INDEX_TR
-      ]);
-    });
+    if (isSplitMode) {
+      // === 分割モード ===
+      // サブフォルダを作成
+      const { subFolderId, subFolderName } = _createSubfolderForSplitMode(baseTitle, outputFolderUrl);
+
+      // 作業シートを作成（分割モード用）
+      workSheet = _createWorkSheetForSplitMode(targetSheetName, subFolderId, true);
+
+      // グループごとにプレゼンテーションを作成し、タスクを登録
+      for (const [groupKey, rowNumbers] of groupedData.entries()) {
+        const presentationId = _createPresentationForGroup(groupKey, baseTitle, subFolderId);
+
+        rowNumbers.forEach(rowNum => {
+          workListData.push([
+            `Row_${rowNum}`,
+            rowNum,
+            STATUS_EMPTY,
+            mode,
+            presentationId, SLIDES_TEMPLATE_ID_TR, TEMPLATE_SLIDE_INDEX_TR, combineRows,
+            JSON.stringify(ALT_TEXT_TITLE_MAP_TR),
+            IMAGE_ALT_TEXT_TITLE_TR,
+            ILLUSTRATION_COLUMN_INDEX_TR,
+            "", // ConditionalBgColors
+            groupKey // GroupKey
+          ]);
+        });
+      }
+
+      Logger.log(`分割モード: ${groupedData.size} 個のプレゼンテーションを作成しました。`);
+
+    } else {
+      // === 統合モード（従来の動作） ===
+      const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+      const newPresentationTitle = `${baseTitle}_${timestamp}`;
+      const presentationId = _createAndMovePresentation(newPresentationTitle);
+
+      // 作業シートを作成（統合モード用）
+      workSheet = _createWorkSheet(presentationId, targetSheetName);
+
+      // 全行をタスクとして登録
+      const dataRows = allData.slice(1);
+      dataRows.forEach((_, index) => {
+        const rowNum = index + 2;
+        workListData.push([
+          `Row_${rowNum}`,
+          rowNum,
+          STATUS_EMPTY,
+          mode,
+          presentationId, SLIDES_TEMPLATE_ID_TR, TEMPLATE_SLIDE_INDEX_TR, combineRows,
+          JSON.stringify(ALT_TEXT_TITLE_MAP_TR),
+          IMAGE_ALT_TEXT_TITLE_TR,
+          ILLUSTRATION_COLUMN_INDEX_TR
+        ]);
+      });
+    }
 
     if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
+      const numCols = isSplitMode ? 13 : 11;
+      workSheet.getRange(2, 1, workListData.length, numCols).setValues(workListData);
     }
 
     _showSetupCompletionDialog({
       workSheetName: WORK_LIST_SHEET_NAME,
-      menuItemName: '🌡️ 東海理科用 > 1-6 スライド生成(詳細情報)（実行）',
+      menuItemName: `🌡️ 東海理科用 > 1-6 スライド生成(詳細情報)（実行）`,
       processFunctionName: 'createSlides_PROCESS',
       useManualExecution: true
     });
@@ -87,14 +230,41 @@ function createSlideDetailTR_SETUP() {
   }
 }
 
+/**
+ * [SETUP] 1行1スライド (DetailTR) のセットアップ - 後方互換用
+ * 統合モードとして動作
+ */
+function createSlideDetailTR_SETUP() {
+  createSlideDetailTR_Combined_SETUP();
+}
+
 
 /**
- * [SETUP] 複数行1スライド (SummaryTR) のセットアップ
+ * [SETUP] 複数行1スライド (SummaryTR) のセットアップ - 統合モード
+ * すべてのスライドを1つのプレゼンテーションに生成
  */
-function createSlideSummaryTR_SETUP() {
+function createSlideSummaryTR_Combined_SETUP() {
+  _createSlideSummaryTR_SETUP_Internal(false); // 統合モード
+}
+
+/**
+ * [SETUP] 複数行1スライド (SummaryTR) のセットアップ - 分割モード
+ * グループごとに別々のプレゼンテーションを生成
+ */
+function createSlideSummaryTR_Split_SETUP() {
+  _createSlideSummaryTR_SETUP_Internal(true); // 分割モード
+}
+
+/**
+ * [内部] SummaryTR セットアップの共通ロジック
+ * @param {boolean} isSplitMode - true: 分割モード, false: 統合モード
+ */
+function _createSlideSummaryTR_SETUP_Internal(isSplitMode) {
   const ui = SpreadsheetApp.getUi();
   try {
-    ss.toast('セットアップ (SummaryTR) を開始します...', '開始', 10);
+    const modeLabel = isSplitMode ? '分割モード' : '統合モード';
+    ss.toast(`セットアップ (SummaryTR - ${modeLabel}) を開始します...`, '開始', 10);
+
     // --- 元の設定項目 ---
     const SLIDES_TEMPLATE_ID_TR = '1NYkmHwG4hHm8sadB_n15N6knXNGXtX3ZpLibePXfKS8';
     const TEMPLATE_SLIDE_INDEX_TR = 2;
@@ -103,16 +273,17 @@ function createSlideSummaryTR_SETUP() {
       "placeholder_trouble": 9, "placeholder_id": 0, "placeholder_place": 1,
       "placeholder_point_rough": 7, "placeholder_equip_num": 5, "placeholder_original_nums": 2,
       "placeholder_date": 4, "placeholder_title": 10, "placeholder_detail": 11,
-      "placeholder_issue": 12, "placeholder_fix": 13, "placeholder_name": 14, "placeholder_original_num" : 2
+      "placeholder_issue": 12, "placeholder_fix": 13, "placeholder_name": 14, "placeholder_original_num": 2
     };
     const IMAGE_ALT_TEXT_TITLE_TR = false;
     const ILLUSTRATION_COLUMN_INDEX_TR = false;
     const combineRows = true;
     const mode = 'SummaryTR';
-    const chunkSize = 5; // 1スライドにまとめる最大行数
+    const chunkSize = 5;
     const groupingColumns = ["設備名称", "工程ブロック/資産No", "異常現象"];
+    const baseTitle = "事例一覧スライド";
 
-    // --- 1. 対象シート取得 (元のロジック) ---
+    // --- 1. 対象シート取得 ---
     const targetSheetName = tokaiPromptSheet.getRange("C15").getValue();
     if (!targetSheetName) throw new Error(`対象シート名が入力されていません。`);
     const sheet = ss.getSheetByName(targetSheetName);
@@ -121,73 +292,86 @@ function createSlideSummaryTR_SETUP() {
     // --- 2. ID採番 ---
     try {
       const masterSheetName = tokaiPromptSheet.getRange("C17").getValue();
-      const id_col=1;
-      const ID_PREFIX="EC-TY-";
+      const id_col = 1;
+      const ID_PREFIX = "EC-TY-";
       assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, groupingColumns);
       SpreadsheetApp.getActiveSpreadsheet().toast('グループIDをA列に採番・更新しました。', 'ID採番完了', 3);
     } catch (e) {
       throw new Error(`ID採番中にエラーが発生しました: ${e.message}`);
     }
 
-    // --- 3. 新規プレゼンテーション作成 ---
-    const newPresentationTitle = `事例一覧スライド_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
-    const presentationId = _createAndMovePresentation(newPresentationTitle);
-
-    // --- 4. データ取得 & グルーピング (createSlidesMainFuncから移植) ---
-    const allData = sheet.getDataRange().getValues();
-    const header = allData[0];
-    const dataRows = allData.slice(1);
-
-    const groupIndices = groupingColumns.map(colName => {
-      const index = header.indexOf(colName);
-      if (index === -1) throw new Error(`データシートのヘッダーに列名「${colName}」が見つかりません。`);
-      return index;
-    });
-
-    // ★重要: グルーピングロジックを変更。行番号(index + 2)を格納する
-    const groupedData = new Map(); // Map<グループキー, { rowNumbers: number[] }>
-    dataRows.forEach((row, index) => {
-      const groupKey = groupIndices.map(idx => row[idx]).join('|');
-      
-      // グループ化のキーが空欄の場合はスキップ (元のロジックにはなかったが、ID採番ロジックに合わせて追加)
-      if (groupIndices.map(idx => row[idx]).some(val => val === null || val === "")) {
-        return; 
-      }
-
-      if (!groupedData.has(groupKey)) {
-        groupedData.set(groupKey, { rowNumbers: [] });
-      }
-      groupedData.get(groupKey).rowNumbers.push(index + 2); // 実際のシート行番号を格納
-    });
-
+    // --- 3. データをグループ化 ---
+    const { groupedData } = _groupDataByColumns(sheet, groupingColumns);
     if (groupedData.size === 0) throw new Error('グルーピング対象のデータが0件です。');
 
-    // --- 5. 作業シート作成 & タスク書き込み (チャンク単位) ---
-    const workSheet = _createWorkSheet(presentationId, targetSheetName);
+    const outputFolderUrl = promptSheet.getRange(slideSaveDir_pos).getValue();
+    let workSheet;
     const workListData = [];
 
-    for (const [groupKey, groupInfo] of groupedData.entries()) {
-      const groupRowNumbers = groupInfo.rowNumbers; // [2, 5, 10, 11, 12, 15]
+    if (isSplitMode) {
+      // === 分割モード ===
+      // サブフォルダを作成
+      const { subFolderId } = _createSubfolderForSplitMode(baseTitle, outputFolderUrl);
 
-      // チャンキング
-      for (let i = 0; i < groupRowNumbers.length; i += chunkSize) {
-        const chunkRowNumbers = groupRowNumbers.slice(i, i + chunkSize); // [2, 5, 10, 11, 12]
-        
-        workListData.push([
-          `${groupKey}|Chunk${i}`, // TaskKey (一意にする)
-          JSON.stringify(chunkRowNumbers), // TaskData (行番号配列)
-          STATUS_EMPTY, // Status
-          mode, // Mode
-          presentationId, SLIDES_TEMPLATE_ID_TR, TEMPLATE_SLIDE_INDEX_TR, combineRows,
-          JSON.stringify(ALT_TEXT_TITLE_MAP_TR), // AltTextMap
-          IMAGE_ALT_TEXT_TITLE_TR, // ImageAltText
-          ILLUSTRATION_COLUMN_INDEX_TR  // ImageColIndex
-        ]);
+      // 作業シートを作成（分割モード用）
+      workSheet = _createWorkSheetForSplitMode(targetSheetName, subFolderId, true);
+
+      // グループごとにプレゼンテーションを作成し、タスクを登録
+      for (const [groupKey, rowNumbers] of groupedData.entries()) {
+        const presentationId = _createPresentationForGroup(groupKey, baseTitle, subFolderId);
+
+        // チャンキング
+        for (let i = 0; i < rowNumbers.length; i += chunkSize) {
+          const chunkRowNumbers = rowNumbers.slice(i, i + chunkSize);
+
+          workListData.push([
+            `${groupKey}|Chunk${i}`,
+            JSON.stringify(chunkRowNumbers),
+            STATUS_EMPTY,
+            mode,
+            presentationId, SLIDES_TEMPLATE_ID_TR, TEMPLATE_SLIDE_INDEX_TR, combineRows,
+            JSON.stringify(ALT_TEXT_TITLE_MAP_TR),
+            IMAGE_ALT_TEXT_TITLE_TR,
+            ILLUSTRATION_COLUMN_INDEX_TR,
+            "", // ConditionalBgColors
+            groupKey // GroupKey
+          ]);
+        }
+      }
+
+      Logger.log(`分割モード: ${groupedData.size} 個のプレゼンテーションを作成しました。`);
+
+    } else {
+      // === 統合モード（従来の動作） ===
+      const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+      const newPresentationTitle = `${baseTitle}_${timestamp}`;
+      const presentationId = _createAndMovePresentation(newPresentationTitle);
+
+      // 作業シートを作成（統合モード用）
+      workSheet = _createWorkSheet(presentationId, targetSheetName);
+
+      // グループごとにチャンキングしてタスクを登録
+      for (const [groupKey, rowNumbers] of groupedData.entries()) {
+        for (let i = 0; i < rowNumbers.length; i += chunkSize) {
+          const chunkRowNumbers = rowNumbers.slice(i, i + chunkSize);
+
+          workListData.push([
+            `${groupKey}|Chunk${i}`,
+            JSON.stringify(chunkRowNumbers),
+            STATUS_EMPTY,
+            mode,
+            presentationId, SLIDES_TEMPLATE_ID_TR, TEMPLATE_SLIDE_INDEX_TR, combineRows,
+            JSON.stringify(ALT_TEXT_TITLE_MAP_TR),
+            IMAGE_ALT_TEXT_TITLE_TR,
+            ILLUSTRATION_COLUMN_INDEX_TR
+          ]);
+        }
       }
     }
 
     if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 11).setValues(workListData);
+      const numCols = isSplitMode ? 13 : 11;
+      workSheet.getRange(2, 1, workListData.length, numCols).setValues(workListData);
     }
 
     _showSetupCompletionDialog({
@@ -201,6 +385,14 @@ function createSlideSummaryTR_SETUP() {
     Logger.log(e);
     ui.alert(`セットアップエラー (SummaryTR):\n${e.message}`);
   }
+}
+
+/**
+ * [SETUP] 複数行1スライド (SummaryTR) のセットアップ - 後方互換用
+ * 統合モードとして動作
+ */
+function createSlideSummaryTR_SETUP() {
+  createSlideSummaryTR_Combined_SETUP();
 }
 
 // ===================================================================
@@ -223,31 +415,42 @@ function createSlides_PROCESS() {
 
   _showProgress('スライド生成処理を開始します...', '📽️ スライド生成', 3);
 
-  // --- 1. 共通設定（プレゼンテーションID、対象シート名）を作業シートから取得 ---
-  // (D1セル、E1セルに保存したと仮定)
-  const presentationId = workSheet.getRange("D1").getValue();
+  // --- 1. 共通設定を作業シートから取得 ---
   const targetSheetName = workSheet.getRange("E1").getValue();
+  const modeFlag = workSheet.getRange("N1").getValue(); // "SPLIT" or "COMBINED"（N列に移動）
+  const isSplitMode = (modeFlag === "SPLIT");
+  const subFolderId = isSplitMode ? workSheet.getRange("O1").getValue() : null; // 分割モード時のサブフォルダID（O列）
 
-  if (!presentationId || !targetSheetName) {
-    Logger.log("作業シート D1 または E1 に設定情報がありません。SETUPを先に実行してください。");
+  // 統合モードの場合のみD1からプレゼンテーションIDを取得
+  const singlePresentationId = isSplitMode ? null : workSheet.getRange("D1").getValue();
+
+  if (!targetSheetName) {
+    Logger.log("作業シート E1 に対象シート名がありません。SETUPを先に実行してください。");
     return;
   }
 
-  let presentation;
+  // 統合モードの場合、プレゼンテーションIDが必要
+  if (!isSplitMode && !singlePresentationId) {
+    Logger.log("統合モードですが、D1にプレゼンテーションIDがありません。");
+    return;
+  }
+
   let inputSheet;
   let allData;
+  // 分割モード用: プレゼンテーションIDごとにキャッシュ
+  const presentationCache = new Map();
+
   try {
-    presentation = SlidesApp.openById(presentationId);
     inputSheet = ss.getSheetByName(targetSheetName);
     if (!inputSheet) throw new Error(`入力シート ${targetSheetName} が見つかりません。`);
     allData = inputSheet.getDataRange().getValues(); // ★全データを一度だけ読み込む
   } catch (e) {
-    Logger.log(`必須リソース（プレゼンテーション, 入力シート）が開けません: ${e}`);
-    return; // 処理不可
+    Logger.log(`入力シートが開けません: ${e}`);
+    return;
   }
 
   // --- 2. 未処理のタスクを検索 ---
-  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 12); // 12列分取得
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 13); // 13列分取得（GroupKey含む）
   const workValues = workRange.getValues();
 
   let processedCountInThisRun = 0;
@@ -272,6 +475,7 @@ function createSlides_PROCESS() {
       const taskKey = workValues[i][0];
       const taskDataJson = workValues[i][1];
       // const mode = workValues[i][3]; // (参考用)
+      const taskPresentationId = workValues[i][4]; // E列: 各タスクのプレゼンテーションID
       const templateId = workValues[i][5];
       const templateIndex = workValues[i][6];
       const combineRows = workValues[i][7];
@@ -280,12 +484,22 @@ function createSlides_PROCESS() {
       const imageColIndex = workValues[i][10];
       const conditionalBgColors = workValues[i][11] ? JSON.parse(workValues[i][11]) : null;
 
-      let templateSlide; // テンプレートスライドはタスクごとに取得
+      let templateSlide;
+      let presentation;
 
       try {
         // 3a. ステータスを「処理中」に更新
         workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
-        
+
+        // プレゼンテーションを取得（キャッシュを使用）
+        const presId = isSplitMode ? taskPresentationId : singlePresentationId;
+        if (presentationCache.has(presId)) {
+          presentation = presentationCache.get(presId);
+        } else {
+          presentation = SlidesApp.openById(presId);
+          presentationCache.set(presId, presentation);
+        }
+
         templateSlide = SlidesApp.openById(templateId).getSlides()[templateIndex];
         if (!templateSlide) {
           throw new Error(`テンプレートスライド (ID: ${templateId}, Index: ${templateIndex}) が見つかりません。`);
@@ -296,7 +510,7 @@ function createSlides_PROCESS() {
           // --- 1行1スライド (Tomy, DetailTR) ---
           const rowNum = JSON.parse(taskDataJson); // 行番号 (e.g. 3)
           const row = allData[rowNum - 1]; // allData (0-indexed) から行データを復元
-          
+
           _transferSingleRowToSlide(
             presentation,
             templateSlide,
@@ -390,22 +604,54 @@ function createSlides_PROCESS() {
     Logger.log("すべてのタスクが完了しました。");
 
     try {
-      // 4a. 最初の空スライドを削除 (元のロジック)
-      const finalPresentation = SlidesApp.openById(presentationId); // 再度開く
-      const initialSlide = finalPresentation.getSlides()[0];
-      if (initialSlide && finalPresentation.getSlides().length > 1) {
-        initialSlide.remove();
-        Logger.log("最初の空スライドを削除しました。");
-      }
-      
-      // 4b. 完了通知
-      const presentationUrl = finalPresentation.getUrl();
-      Logger.log(`処理完了。プレゼンテーションURL: ${presentationUrl}`);
-      _showProgress('すべてのスライド生成が完了しました！', '✅ 完了', 10);
+      if (isSplitMode) {
+        // === 分割モード：全プレゼンテーションの空スライドを削除 ===
+        const processedPresentationIds = new Set();
+        for (const row of workValues) {
+          const presId = row[4]; // E列: PresentationID
+          if (presId && !processedPresentationIds.has(presId)) {
+            processedPresentationIds.add(presId);
+            try {
+              const pres = SlidesApp.openById(presId);
+              const slides = pres.getSlides();
+              if (slides.length > 1) {
+                slides[0].remove();
+                Logger.log(`プレゼンテーション ${pres.getName()} の最初の空スライドを削除しました。`);
+              }
+            } catch (e) {
+              Logger.log(`警告: プレゼンテーション ${presId} の空スライド削除中にエラー: ${e}`);
+            }
+          }
+        }
 
-      // 手動実行時のみアラート表示
-      if (_isManualExecution()) {
-        ui.alert('成功', `プレゼンテーションを作成しました: ${finalPresentation.getName()}\nURL: ${presentationUrl}`, ui.ButtonSet.OK);
+        // 完了通知（サブフォルダへのリンク）
+        const folderUrl = subFolderId ? `https://drive.google.com/drive/folders/${subFolderId}` : '';
+        Logger.log(`処理完了。${processedPresentationIds.size} 個のプレゼンテーションを作成しました。`);
+        _showProgress(`すべてのスライド生成が完了しました！(${processedPresentationIds.size}ファイル)`, '✅ 完了', 10);
+
+        // 手動実行時のみアラート表示
+        if (_isManualExecution()) {
+          ui.alert('成功', `${processedPresentationIds.size} 個のプレゼンテーションを作成しました。\n\nフォルダURL: ${folderUrl}`, ui.ButtonSet.OK);
+        }
+
+      } else {
+        // === 統合モード：従来の処理 ===
+        const finalPresentation = SlidesApp.openById(singlePresentationId);
+        const initialSlide = finalPresentation.getSlides()[0];
+        if (initialSlide && finalPresentation.getSlides().length > 1) {
+          initialSlide.remove();
+          Logger.log("最初の空スライドを削除しました。");
+        }
+
+        // 完了通知
+        const presentationUrl = finalPresentation.getUrl();
+        Logger.log(`処理完了。プレゼンテーションURL: ${presentationUrl}`);
+        _showProgress('すべてのスライド生成が完了しました！', '✅ 完了', 10);
+
+        // 手動実行時のみアラート表示
+        if (_isManualExecution()) {
+          ui.alert('成功', `プレゼンテーションを作成しました: ${finalPresentation.getName()}\nURL: ${presentationUrl}`, ui.ButtonSet.OK);
+        }
       }
 
       // 4c. トリガーを停止
@@ -414,6 +660,12 @@ function createSlides_PROCESS() {
     } catch (e) {
       Logger.log(`完了処理（空スライド削除、トリガー停止）中にエラー: ${e}`);
     }
+  } else if (remainingTasks > 0) {
+    // まだタスクが残っている場合（タイムアウトで中断）
+    _showProgress(`${processedCountInThisRun}件処理完了。残り${remainingTasks}件（次回継続）`, '⏸️ 中断', 5);
+  } else {
+    // 処理タスクがなかった場合（すでに全完了済み）
+    _showProgress('処理対象のタスクがありません', '📋 確認', 3);
   }
 }
 
@@ -1009,6 +1261,143 @@ function assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, gr
 }
 
 // ===================================================================
+// 分割モード対応ヘルパー関数
+// ===================================================================
+
+/**
+ * [新規] データを指定カラムでグループ化する
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - データシート
+ * @param {string[]} groupingColumns - グルーピングに使用する列名の配列
+ * @return {Object} { header, groupedData: Map<groupKey, rowNumbers[]> }
+ */
+function _groupDataByColumns(sheet, groupingColumns) {
+  const allData = sheet.getDataRange().getValues();
+  const header = allData[0];
+  const dataRows = allData.slice(1);
+
+  const groupIndices = groupingColumns.map(colName => {
+    const index = header.indexOf(colName);
+    if (index === -1) throw new Error(`データシートのヘッダーに列名「${colName}」が見つかりません。`);
+    return index;
+  });
+
+  const groupedData = new Map(); // Map<グループキー, rowNumbers[]>
+  dataRows.forEach((row, index) => {
+    const keyValues = groupIndices.map(idx => row[idx]);
+    // グループ化のキーが空欄の場合はスキップ
+    if (keyValues.some(val => val === null || val === "")) {
+      return;
+    }
+    const groupKey = keyValues.join('|');
+    if (!groupedData.has(groupKey)) {
+      groupedData.set(groupKey, []);
+    }
+    groupedData.get(groupKey).push(index + 2); // 実際のシート行番号
+  });
+
+  return { header, groupedData, allData };
+}
+
+/**
+ * [新規] 分割モード用：グループごとにプレゼンテーションを作成し、サブフォルダに保存
+ * @param {string} baseTitle - 基本タイトル（例: "詳細事例スライド"）
+ * @param {string} baseFolderUrl - 保存先フォルダのURL
+ * @return {Object} { subFolderId, subFolderName }
+ */
+function _createSubfolderForSplitMode(baseTitle, baseFolderUrl) {
+  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm');
+  const subFolderName = `${baseTitle}_${timestamp}`;
+
+  let parentFolder = null;
+  if (baseFolderUrl) {
+    const folderId = _extractFolderIdFromUrl(baseFolderUrl);
+    if (folderId) {
+      try {
+        parentFolder = DriveApp.getFolderById(folderId);
+      } catch (e) {
+        Logger.log(`警告: 指定されたフォルダが見つかりません。ルートに作成します。`);
+      }
+    }
+  }
+
+  let subFolder;
+  if (parentFolder) {
+    subFolder = parentFolder.createFolder(subFolderName);
+  } else {
+    subFolder = DriveApp.getRootFolder().createFolder(subFolderName);
+  }
+
+  Logger.log(`サブフォルダを作成しました: ${subFolderName}`);
+  return { subFolderId: subFolder.getId(), subFolderName: subFolderName };
+}
+
+/**
+ * [新規] 分割モード用：グループごとにプレゼンテーションを作成
+ * @param {string} groupKey - グループキー
+ * @param {string} baseTitle - 基本タイトル
+ * @param {string} subFolderId - サブフォルダID
+ * @return {string} presentationId
+ */
+function _createPresentationForGroup(groupKey, baseTitle, subFolderId) {
+  // グループキーからファイル名を作成（安全な文字に変換）
+  const safeGroupKey = groupKey.replace(/\|/g, '_').replace(/[\/\\:*?"<>|]/g, '_');
+  const presentationTitle = `${baseTitle}_${safeGroupKey}`;
+
+  const tempPresentation = SlidesApp.create(presentationTitle);
+  const presentationId = tempPresentation.getId();
+  const presentationFile = DriveApp.getFileById(presentationId);
+
+  if (subFolderId) {
+    try {
+      const subFolder = DriveApp.getFolderById(subFolderId);
+      presentationFile.moveTo(subFolder);
+      Logger.log(`プレゼンテーション「${presentationTitle}」をサブフォルダに移動しました。`);
+    } catch (e) {
+      Logger.log(`警告: プレゼンテーションの移動に失敗。ルートに残ります。`);
+    }
+  }
+
+  return presentationId;
+}
+
+/**
+ * [新規] 分割モード用：作業シートを作成（複数プレゼンテーション対応）
+ * @param {string} targetSheetName - 読み込み元のシート名
+ * @param {string} subFolderId - サブフォルダID（分割モード時）
+ * @param {boolean} isSplitMode - 分割モードかどうか
+ * @return {GoogleAppsScript.Spreadsheet.Sheet} 作成またはクリアされた作業シート
+ */
+function _createWorkSheetForSplitMode(targetSheetName, subFolderId, isSplitMode) {
+  let workSheet = ss.getSheetByName(WORK_LIST_SHEET_NAME);
+  if (workSheet) {
+    workSheet.clear();
+  } else {
+    workSheet = ss.insertSheet(WORK_LIST_SHEET_NAME, 0);
+  }
+
+  const workHeader = [
+    "TaskKey", "TaskData (JSON or RowNum)", "Status", "Mode",
+    "PresentationID", "TemplateID", "TemplateIndex", "CombineRows",
+    "AltTextMap (JSON)", "ImageAltText", "ImageColIndex", "ConditionalBgColors (JSON)",
+    "GroupKey", // 分割モード用：どのグループに属するかを記録
+    "SplitMode", // N列: 分割モードフラグ ("SPLIT" or "COMBINED")
+    "SubFolderId" // O列: サブフォルダID（分割モード時のみ）
+  ];
+  workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
+
+  // N1 に分割モードフラグを保存（ヘッダー行のN列）
+  workSheet.getRange("N1").setValue(isSplitMode ? "SPLIT" : "COMBINED");
+  // O1 にサブフォルダIDを保存（分割モード時）
+  if (isSplitMode && subFolderId) {
+    workSheet.getRange("O1").setValue(subFolderId);
+  }
+
+  workSheet.setTabColor('#999999');
+  workSheet.autoResizeColumn(1);
+  return workSheet;
+}
+
+// ===================================================================
 // スライドテンプレートマスタ関連
 // ===================================================================
 
@@ -1046,7 +1435,9 @@ function _getSlideTemplateConfig(templateId) {
       const imageAltText = data[i][4] !== "" ? data[i][4] : false;
       const imageColIndex = data[i][5] !== "" ? data[i][5] : false;
       // G列が空白の場合はnullを設定（条件付き背景色なし）
+      Logger.log(`G列の値: "${data[i][6]}" (型: ${typeof data[i][6]})`);
       const conditionalBgColors = data[i][6] !== "" ? JSON.parse(data[i][6]) : null;
+      Logger.log(`conditionalBgColors: ${JSON.stringify(conditionalBgColors)}`);
 
       return {
         templateId: data[i][0],           // A列: GoogleスライドID
@@ -1061,84 +1452,4 @@ function _getSlideTemplateConfig(templateId) {
   }
 
   return null; // 見つからない場合
-}
-
-/**
- * [SETUP] テンプレートマスタを使用した汎用スライド生成セットアップ
- * promptシートのC16セルからテンプレートID（GoogleスライドID）を取得
- */
-function createSlideFromTemplate_SETUP() {
-  const ui = SpreadsheetApp.getUi();
-  try {
-    ss.toast('セットアップを開始します...', '開始', 10);
-
-    // --- 1. テンプレートIDをpromptシートから取得 ---
-    const templateId = promptSheet.getRange('C16').getValue();
-    if (!templateId) {
-      throw new Error('promptシートのC16セルにテンプレートID（GoogleスライドID）が入力されていません。');
-    }
-
-    // --- 2. マスタからテンプレート設定を取得 ---
-    const config = _getSlideTemplateConfig(templateId);
-    if (!config) {
-      throw new Error(`テンプレートID「${templateId}」がマスタシートに登録されていません。`);
-    }
-
-    Logger.log(`テンプレート「${config.templateName}」を使用します。`);
-
-    // --- 3. 対象シート取得 ---
-    const targetSheetName = promptSheet.getRange(generateSlidesSheetName_pos).getValue();
-    if (!targetSheetName) throw new Error(`promptシートのC13セルに対象シート名が入力されていません。`);
-    const sheet = ss.getSheetByName(targetSheetName);
-    if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
-
-    // --- 4. 新規プレゼンテーション作成 ---
-    const newPresentationTitle = `詳細事例スライド_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss')}`;
-    const presentationId = _createAndMovePresentation(newPresentationTitle);
-
-    // --- 5. データ行取得 ---
-    const allData = sheet.getDataRange().getValues();
-    const dataRows = allData.slice(1);
-    if (dataRows.length === 0) throw new Error('シートにデータが見つかりません（ヘッダーを除く）。');
-
-    // --- 6. 作業シート作成 & タスク書き込み ---
-    const workSheet = _createWorkSheet(presentationId, targetSheetName);
-    const workListData = [];
-
-    const mode = 'Template'; // 汎用モード
-    const combineRows = false;
-
-    dataRows.forEach((_, index) => {
-      const rowNum = index + 2; // 実際のシート行番号
-      workListData.push([
-        `Row_${rowNum}`,                    // TaskKey
-        rowNum,                              // TaskData (行番号)
-        STATUS_EMPTY,                        // Status
-        mode,                                // Mode
-        presentationId,                      // PresentationID
-        config.templateId,                   // TemplateID
-        config.slideIndex,                   // TemplateIndex
-        combineRows,                         // CombineRows
-        JSON.stringify(config.altTextTitleMap), // AltTextMap (JSON)
-        config.imageAltText,                 // ImageAltText
-        config.imageColIndex,                // ImageColIndex
-        config.conditionalBgColors ? JSON.stringify(config.conditionalBgColors) : "" // ConditionalBgColors (JSON)
-      ]);
-    });
-
-    if (workListData.length > 0) {
-      workSheet.getRange(2, 1, workListData.length, 12).setValues(workListData);
-    }
-
-    _showSetupCompletionDialog({
-      workSheetName: WORK_LIST_SHEET_NAME,
-      menuItemName: '📽️ スライド生成 > ⑦_2 スライド生成（実行）',
-      processFunctionName: 'createSlides_PROCESS',
-      useManualExecution: true
-    });
-
-  } catch (e) {
-    Logger.log(e);
-    ui.alert(`セットアップエラー:\n${e.message}`);
-  }
 }

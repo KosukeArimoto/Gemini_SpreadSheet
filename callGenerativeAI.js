@@ -220,9 +220,14 @@ function callGeminiApi(prompt, projectId, accessToken) {
     if (!configSheet) {
       throw new Error('設定シート「config」が見つかりません。');
     }
+  const region = configSheet.getRange('C1').getValue() || "us-central1";
   const model = configSheet.getRange('C2').getValue();
-  const region = "us-west1";
-  const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+
+  // globalリージョンの場合はプレフィックスなし、それ以外は${region}-プレフィックス
+  const endpoint = region === "global"
+    ? "https://aiplatform.googleapis.com"
+    : `https://${region}-aiplatform.googleapis.com`;
+  const url = `${endpoint}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
 
   const payload = {
     "contents": [{

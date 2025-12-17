@@ -52,10 +52,17 @@ function onOpen() {
       .addItem('1-2 詳細情報生成（実行）', 'generateKnowledge_PROCESS')
       .addItem('1-3 行ごとの画像生成(セットアップ)', 'generateRowImages_SETUP')
       .addItem('1-4 行ごとの画像生成(実行)', 'generateRowImages_PROCESS')
-      .addItem('1-5 スライド生成(詳細情報)（セットアップ）', 'createSlideDetailTR_SETUP')
+      .addSeparator()
+      // --- 詳細情報スライド（サブメニュー） ---
+      .addSubMenu(SpreadsheetApp.getUi().createMenu('1-5 スライド生成(詳細情報)')
+        .addItem('統合モード（セットアップ）', 'createSlideDetailTR_Combined_SETUP')
+        .addItem('分割モード（セットアップ）', 'createSlideDetailTR_Split_SETUP'))
       .addItem('1-6 スライド生成(詳細情報)（実行）', 'createSlides_PROCESS')
       .addSeparator()
-      .addItem('2-1 スライド生成(まとめ一覧)（セットアップ）', 'createSlideSummaryTR_SETUP')
+      // --- まとめ一覧スライド（サブメニュー） ---
+      .addSubMenu(SpreadsheetApp.getUi().createMenu('2-1 スライド生成(まとめ一覧)')
+        .addItem('統合モード（セットアップ）', 'createSlideSummaryTR_Combined_SETUP')
+        .addItem('分割モード（セットアップ）', 'createSlideSummaryTR_Split_SETUP'))
       .addItem('2-2 スライド生成(まとめ一覧)（実行）', 'createSlides_PROCESS'))
 
     .addToUi();

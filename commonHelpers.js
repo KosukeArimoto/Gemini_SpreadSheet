@@ -231,6 +231,9 @@ function _showSetupCompletionDialog(config) {
   }
 
   ui.alert('✅ セットアップ完了', message, ui.ButtonSet.OK);
+
+  // ダイアログ終了後にUIを更新させる
+  SpreadsheetApp.flush();
 }
 
 /**
