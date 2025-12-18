@@ -178,11 +178,19 @@ function callGPTApi_(prompt) {
     throw new Error('OpenAI APIキーが設定されていません。「AI連携ツール」メニューから設定してください。');
   }
 
+  // configシートからモデル名を取得
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const configSheet = ss.getSheetByName('config');
+  if (!configSheet) {
+    throw new Error('設定シート「config」が見つかりません。');
+  }
+  const model = configSheet.getRange('C7').getValue() || "gpt-image-1";
+  console.log("model is "+model)
+
   const url = "https://api.openai.com/v1/images/generations";
 
   const payload = {
-    // "model": "dall-e-3", // DALL·E 3モデルを指定
-    "model":"gpt-image-1",
+    "model": model, // configシートC7セルから取得
     "prompt": prompt,
     "n": 1,
     "size": "1536x1024", // 横長のイラスト (16:9に近い)
