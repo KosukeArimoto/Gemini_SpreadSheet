@@ -237,15 +237,6 @@ function _createSlideDetailTR_SETUP_Internal(isSplitMode) {
 }
 
 /**
- * [SETUP] 1行1スライド (DetailTR) のセットアップ - 後方互換用
- * 統合モードとして動作
- */
-function createSlideDetailTR_SETUP() {
-  createSlideDetailTR_Combined_SETUP();
-}
-
-
-/**
  * [SETUP] 複数行1スライド (SummaryTR) のセットアップ - 統合モード
  * すべてのスライドを1つのプレゼンテーションに生成
  */
@@ -398,14 +389,6 @@ function _createSlideSummaryTR_SETUP_Internal(isSplitMode) {
     Logger.log(e);
     ui.alert(`セットアップエラー (SummaryTR):\n${e.message}`);
   }
-}
-
-/**
- * [SETUP] 複数行1スライド (SummaryTR) のセットアップ - 後方互換用
- * 統合モードとして動作
- */
-function createSlideSummaryTR_SETUP() {
-  createSlideSummaryTR_Combined_SETUP();
 }
 
 // ===================================================================
@@ -870,10 +853,6 @@ function _createAndMovePresentation(newPresentationTitle) {
 // - _extractFolderIdFromUrl()
 // ===================================================================
 
-// --- 以下、元のコードから変更不要なヘルパー関数 ---
-// ( _transferChunkToSlide_, extractGoogleDriveId_, _extractFolderIdFromUrl, assignGroupIdsToSheet )
-// ... (元のコードをそのままコピーしてください) ...
-
 /**
  * [新規] スプレッドシートの複数行データ(チャンク)を、1枚のGoogleスライドに転記する関数
  * @param {SlidesApp.Presentation} presentation - 書き込み先のプレゼンテーションオブジェクト
@@ -1082,83 +1061,8 @@ function _transferChunkToSlide_(presentation, templateSlide, chunk, startRowNumF
 // 注: extractGoogleDriveId_() と _extractFolderIdFromUrl() は
 // commonHelpers.js に移動しました
 // ===================================================================
-
-
-// --- ★変更: ID採番用の関数を新設 ---
-/**
- * [新規] スプレッドシートのA列にグループIDを採番して書き込む関数
- * groupingColumns は createSlidesMainFunc の定義に合わせる
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - 対象のシートオブジェクト
- */
-function assignGroupIdsToSheet(sheet) {
-  const allData = sheet.getDataRange().getValues();
-  const header = allData[0];
-  const dataRows = allData.slice(1);
-
-  if (dataRows.length === 0) {
-    Logger.log("ID採番: データ行がありません。");
-    return; // データがなければ何もしない
-  }
-
-  
-  const groupIndices = groupingColumns.map(colName => {
-    const index = header.indexOf(colName);
-    if (index === -1) {
-      // ヘッダーに見つからない場合はエラーを投げる
-      throw new Error(`ID採番エラー: データシートのヘッダーに列名「${colName}」が見つかりません。`);
-    }
-    return index;
-  });
-
-  // --- グルーピング実行 (元の行インデックス[0始まり]を保持) ---
-  const groupedData = new Map(); // Map<グループキー, { originalIndices: number[] }>
-  
-  dataRows.forEach((row, index) => {
-    // グループ化のキーとなる値を取得
-    const keyValues = groupIndices.map(idx => row[idx]);
-    
-    // キーのいずれかが空欄の場合、その行はグループ化対象外とする
-    if (keyValues.some(val => val === null || val === "")) {
-      return; 
-    }
-    
-    // グループキーを作成
-    const groupKey = keyValues.join('|'); 
-    
-    if (!groupedData.has(groupKey)) {
-      groupedData.set(groupKey, { originalIndices: [] });
-    }
-    // 0始まりの行インデックスをグループに追加
-    groupedData.get(groupKey).originalIndices.push(index); 
-  });
-
-  // --- IDの生成と書き込み準備 ---
-  let idCounter = 1;
-  // dataRows.length 分の配列を [""] (空欄) で初期化
-  const idsToWrite = Array.from({ length: dataRows.length }, () => [""]); 
-
-  // グループ化されたデータにIDを割り当て
-  for (const [groupKey, groupInfo] of groupedData.entries()) {
-    
-    // IDを "EC-TY001" 形式で生成
-    const newId = "EC-TY" + String(idCounter++).padStart(3, '0');
-    
-    // このグループに属するすべての行の、書き込み用配列 (idsToWrite) の対応する位置にIDをセット
-    groupInfo.originalIndices.forEach(index => {
-      idsToWrite[index] = [newId];
-    });
-  }
-
-  // --- シートへの書き込み (A列の2行目から) ---
-  if (idsToWrite.length > 0) {
-    // getRange(開始行, 開始列, 行数, 列数)
-    sheet.getRange(2, 1, idsToWrite.length, 1).setValues(idsToWrite);
-    Logger.log(`${groupedData.size} グループ (${idCounter - 1} 個) のIDをシートA列に書き込みました。`);
-  }
-}
-
 // ===================================================================
-// ★新設: 永続化対応 ID採番関数
+// 永続化対応 ID採番関数
 // ===================================================================
 /**
  * [新規] スプレッドシートのA列に「永続化された」グループIDを採番して書き込む関数
