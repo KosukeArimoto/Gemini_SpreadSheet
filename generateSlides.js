@@ -135,7 +135,7 @@ function _createSlideDetailTR_SETUP_Internal(isSplitMode) {
       tokaiPromptSheet.getRange("C18").getValue()
     ].filter(col => col && col.trim() !== ""); // 空欄を除外
     if (groupingColumns.length === 0) throw new Error('グルーピング用カテゴリが設定されていません（C16〜C18セル）。');
-    const baseTitle = "保全_(赤）_カルテ";
+    const baseTitle = "保全_(赤)_カルテ";
 
     // --- 1. 対象シート取得 ---
     const targetSheetName = tokaiPromptSheet.getRange("C12").getValue();
@@ -293,17 +293,17 @@ function _createSlideSummaryTR_SETUP_Internal(isSplitMode) {
       tokaiPromptSheet.getRange("C25").getValue()
     ].filter(col => col && col.trim() !== ""); // 空欄を除外
     if (groupingColumns.length === 0) throw new Error('グルーピング用カテゴリが設定されていません（C23〜C25セル）。');
-    const baseTitle = "保全_(青）_事例";
+    const baseTitle = "保全_(青)_事例";
 
     // --- 1. 対象シート取得 ---
-    const targetSheetName = tokaiPromptSheet.getRange("C21").getValue();
-    if (!targetSheetName) throw new Error(`対象シート名が入力されていません。`);
+    const targetSheetName = tokaiPromptSheet.getRange("C19").getValue();
+    if (!targetSheetName) throw new Error(`対象シート名が入力されていません（C19セル）。`);
     const sheet = ss.getSheetByName(targetSheetName);
     if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
 
     // --- 2. ID採番 ---
     try {
-      const masterSheetName = tokaiPromptSheet.getRange("C27").getValue();
+      const masterSheetName = tokaiPromptSheet.getRange("C21").getValue();
       const id_col = 1;
       const ID_PREFIX = "EC-TY-";
       assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, groupingColumns);
@@ -316,7 +316,8 @@ function _createSlideSummaryTR_SETUP_Internal(isSplitMode) {
     const { groupedData } = _groupDataByColumns(sheet, groupingColumns);
     if (groupedData.size === 0) throw new Error('グルーピング対象のデータが0件です。');
 
-    const outputFolderUrl = promptSheet.getRange(slideSaveDir_pos).getValue();
+    // SummaryTR専用: C20セルからフォルダURLを取得
+    const outputFolderUrl = tokaiPromptSheet.getRange("C20").getValue();
     let workSheet;
     const workListData = [];
 
@@ -1397,7 +1398,9 @@ function _createWorkSheetForSplitMode(targetSheetName, subFolderId, isSplitMode)
   ];
   workSheet.getRange(1, 1, 1, workHeader.length).setValues([workHeader]).setFontWeight('bold');
 
-  // N1 に分割モードフラグを保存（ヘッダー行のN列）
+  // E1 に対象シート名を保存（PROCESS時に参照）
+  workSheet.getRange("E1").setValue(targetSheetName);
+  // N1 に分割モードフラグを保存
   workSheet.getRange("N1").setValue(isSplitMode ? "SPLIT" : "COMBINED");
   // O1 にサブフォルダIDを保存（分割モード時）
   if (isSplitMode && subFolderId) {
