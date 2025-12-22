@@ -137,7 +137,7 @@ function generateKnowledge_PROCESS() {
 
     _showProgress('保全ナレッジ生成処理を開始します...', '📝 ナレッジ生成', 3);
 
-    const basePrompt = knowledgeConfigSheet.getRange('C31').getValue();
+    const basePrompt = knowledgeConfigSheet.getRange('C39').getValue();
     const inputSheetName = knowledgeConfigSheet.getRange('C6').getValue();
     const inputSheet = ss.getSheetByName(inputSheetName);
     if (!inputSheet) {

@@ -13,7 +13,7 @@ const IMAGE_WORK_LIST_SHEET_NAME = "_画像生成作業リスト";
  * - C6セル: 画像生成対象のシート名
  * - C7セル: 画像保存先フォルダURL（オプション）
  * - C8セル: 処理対象の通し番号（例: "1-5, 10, 15-20"）
- * - C31セル: 画像生成用のベースプロンプト
+ * - C39セル: 画像生成用のベースプロンプト
  */
 function generateRowImages_SETUP() {
   const ui = SpreadsheetApp.getUi();
@@ -39,10 +39,10 @@ function generateRowImages_SETUP() {
 
     const outputFolderUrl = imageGenSheet.getRange('C7').getValue();
     const targetNumbersString = imageGenSheet.getRange('C8').getValue();
-    const basePrompt = imageGenSheet.getRange('C31').getValue();
+    const basePrompt = imageGenSheet.getRange('C39').getValue();
 
     if (!basePrompt) {
-      throw new Error('C31セルに画像生成用のプロンプトが設定されていません。');
+      throw new Error('C39セルに画像生成用のプロンプトが設定されていません。');
     }
 
     // --- 2. 対象シートのデータを読み込む ---

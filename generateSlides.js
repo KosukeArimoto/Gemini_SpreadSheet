@@ -128,8 +128,14 @@ function _createSlideDetailTR_SETUP_Internal(isSplitMode) {
     const ILLUSTRATION_COLUMN_INDEX_TR = 13;
     const combineRows = false;
     const mode = 'DetailTR';
-    const groupingColumns = ["設備名称", "工程", "異常現象"];
-    const baseTitle = "詳細事例スライド";
+    // グルーピング用カテゴリをC16,C17,C18セルから取得
+    const groupingColumns = [
+      tokaiPromptSheet.getRange("C16").getValue(),
+      tokaiPromptSheet.getRange("C17").getValue(),
+      tokaiPromptSheet.getRange("C18").getValue()
+    ].filter(col => col && col.trim() !== ""); // 空欄を除外
+    if (groupingColumns.length === 0) throw new Error('グルーピング用カテゴリが設定されていません（C16〜C18セル）。');
+    const baseTitle = "保全_(赤）_カルテ";
 
     // --- 1. 対象シート取得 ---
     const targetSheetName = tokaiPromptSheet.getRange("C12").getValue();
@@ -280,18 +286,24 @@ function _createSlideSummaryTR_SETUP_Internal(isSplitMode) {
     const combineRows = true;
     const mode = 'SummaryTR';
     const chunkSize = 5;
-    const groupingColumns = ["設備名称", "工程ブロック/資産No", "異常現象"];
-    const baseTitle = "事例一覧スライド";
+    // グルーピング用カテゴリをC23,C24,C25セルから取得
+    const groupingColumns = [
+      tokaiPromptSheet.getRange("C23").getValue(),
+      tokaiPromptSheet.getRange("C24").getValue(),
+      tokaiPromptSheet.getRange("C25").getValue()
+    ].filter(col => col && col.trim() !== ""); // 空欄を除外
+    if (groupingColumns.length === 0) throw new Error('グルーピング用カテゴリが設定されていません（C23〜C25セル）。');
+    const baseTitle = "保全_(青）_事例";
 
     // --- 1. 対象シート取得 ---
-    const targetSheetName = tokaiPromptSheet.getRange("C15").getValue();
+    const targetSheetName = tokaiPromptSheet.getRange("C21").getValue();
     if (!targetSheetName) throw new Error(`対象シート名が入力されていません。`);
     const sheet = ss.getSheetByName(targetSheetName);
     if (!sheet) throw new Error(`データシート "${targetSheetName}" が見つかりません。`);
 
     // --- 2. ID採番 ---
     try {
-      const masterSheetName = tokaiPromptSheet.getRange("C17").getValue();
+      const masterSheetName = tokaiPromptSheet.getRange("C27").getValue();
       const id_col = 1;
       const ID_PREFIX = "EC-TY-";
       assignPersistentGroupIds_(sheet, masterSheetName, id_col, ID_PREFIX, groupingColumns);
