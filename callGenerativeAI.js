@@ -353,15 +353,15 @@ function generateImageWithGeminiFlash_(prompt, model) {
   const url = `${endpoint}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
 
   const payload = {
-    "contents": [{
-      "role": "user",
+    "contents": {
+      "role": "USER",
       "parts": [{ "text": prompt }]
-    }],
-    "generationConfig": {
-      "responseModalities": ["IMAGE", "TEXT"]
     },
-    "imageGenerationConfig": {
-      "aspectRatio": "16:9"
+    "generationConfig": {
+      "responseModalities": ["TEXT", "IMAGE"],
+      "imageConfig": {
+        "aspectRatio": "16:9"
+      }
     }
   };
 
