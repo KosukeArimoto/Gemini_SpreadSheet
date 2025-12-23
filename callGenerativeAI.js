@@ -190,8 +190,11 @@ function generateImage_(prompt) {
 
   // モデル名に応じてAPIを切り替え
   if (model.includes('imagen')) {
-    // Gemini Imagen API
-    return generateImageWithGemini_(prompt, model);
+    // Gemini Imagen API (imagen-3.0-generate-001 など)
+    return generateImageWithGeminiImagen_(prompt, model);
+  } else if (model.includes('gemini')) {
+    // Gemini 2.5 Flash Image API (gemini-2.5-flash-preview-image-generation など)
+    return generateImageWithGeminiFlash_(prompt, model);
   } else {
     // OpenAI API (gpt-image-1, dall-e-3 など)
     return generateImageWithOpenAI_(prompt, model);
@@ -259,7 +262,7 @@ function generateImageWithOpenAI_(prompt, model) {
  * @param {string} model - 使用するモデル名 (imagen-3.0-generate-001 など)
  * @return {string} - Base64エンコードされた画像データ
  */
-function generateImageWithGemini_(prompt, model) {
+function generateImageWithGeminiImagen_(prompt, model) {
   const userProperties = PropertiesService.getUserProperties();
   const projectId = userProperties.getProperty('GEMINI_PROJECT_ID');
   if (!projectId) {
@@ -319,6 +322,79 @@ function generateImageWithGemini_(prompt, model) {
   } else {
     const errorMsg = responseJson.error ? responseJson.error.message : response.getContentText();
     throw new Error("Gemini Imagen APIから画像が返されませんでした: " + errorMsg);
+  }
+}
+
+/**
+ * Gemini 2.5 Flash Image API と通信し、画像（Base64）を生成する関数
+ * @param {string} prompt - 画像生成用のプロンプト
+ * @param {string} model - 使用するモデル名 (gemini-2.5-flash-preview-image-generation など)
+ * @return {string} - Base64エンコードされた画像データ
+ */
+function generateImageWithGeminiFlash_(prompt, model) {
+  const userProperties = PropertiesService.getUserProperties();
+  const projectId = userProperties.getProperty('GEMINI_PROJECT_ID');
+  if (!projectId) {
+    throw new Error('Gemini認証情報が設定されていません。「AI連携ツール」メニューから設定してください。');
+  }
+
+  const geminiService = getGeminiService();
+  const accessToken = geminiService.getAccessToken();
+
+  // configシートからリージョンを取得
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const configSheet = ss.getSheetByName('config');
+  const region = configSheet.getRange('C1').getValue() || "us-central1";
+
+  // Vertex AI Gemini API エンドポイント (generateContent)
+  const endpoint = region === "global"
+    ? "https://aiplatform.googleapis.com"
+    : `https://${region}-aiplatform.googleapis.com`;
+  const url = `${endpoint}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+
+  const payload = {
+    "contents": [{
+      "role": "user",
+      "parts": [{ "text": prompt }]
+    }],
+    "generationConfig": {
+      "responseModalities": ["image", "text"],
+      "imageSizeConfig": {
+        "aspectRatio": "16:9"
+      }
+    }
+  };
+
+  const options = {
+    'method': 'post',
+    'contentType': 'application/json',
+    'headers': {
+      'Authorization': 'Bearer ' + accessToken
+    },
+    'payload': JSON.stringify(payload),
+    'muteHttpExceptions': true
+  };
+
+  const response = robustFetch_(url, options);
+  const responseJson = JSON.parse(response.getContentText());
+
+  // 実際に使用されたモデルバージョンをログ出力
+  if (responseJson.modelVersion) {
+    console.log("Actual image model version used: " + responseJson.modelVersion);
+  }
+
+  // Gemini Flash Imageはcandidates[].content.parts[]内のinlineDataに画像が入る
+  if (responseJson.candidates && responseJson.candidates.length > 0) {
+    const parts = responseJson.candidates[0].content.parts;
+    for (const part of parts) {
+      if (part.inlineData && part.inlineData.data) {
+        return part.inlineData.data;
+      }
+    }
+    throw new Error("Gemini Flash APIのレスポンスに画像データが含まれていませんでした。");
+  } else {
+    const errorMsg = responseJson.error ? responseJson.error.message : response.getContentText();
+    throw new Error("Gemini Flash APIから画像が返されませんでした: " + errorMsg);
   }
 }
 
