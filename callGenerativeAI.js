@@ -358,10 +358,10 @@ function generateImageWithGeminiFlash_(prompt, model) {
       "parts": [{ "text": prompt }]
     }],
     "generationConfig": {
-      "responseModalities": ["image", "text"],
-      "imageSizeConfig": {
-        "aspectRatio": "16:9"
-      }
+      "responseModalities": ["IMAGE", "TEXT"]
+    },
+    "imageGenerationConfig": {
+      "aspectRatio": "16:9"
     }
   };
 
