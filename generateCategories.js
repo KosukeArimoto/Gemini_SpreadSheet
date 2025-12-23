@@ -851,13 +851,14 @@ function createImages() {
     }
 
     // --- 2b. 新しい列（画像 + URL）を準備 --- ★ ここから修正 ★
-    const existingImageCols = header.filter(h => h.toString().startsWith('生成画像'));
+    // 「生成画像」で始まり「URL」を含まない列のみカウント（生成画像, 生成画像_2, 生成画像_3...）
+    const existingImageCols = header.filter(h => h.toString().startsWith('生成画像') && !h.toString().includes('URL'));
     const firstNewColIndex = header.length;
     let newHeaders = [];
     let newHeaderIndices = {}; // { '生成画像_1': index, '生成画像URL_1': index, ... }
 
     for (let i = 0; i < numberOfGenerations; i++) {
-      const colNumber = existingImageCols.length / 2 + i + 1; // 画像とURLのペアで数える
+      const colNumber = existingImageCols.length + i + 1; // 既存の画像列数 + 新規インデックス
       const imageHeaderName = colNumber === 1 ? '生成画像' : `生成画像_${colNumber}`;
       newHeaders.push(imageHeaderName);
       newHeaderIndices[imageHeaderName] = firstNewColIndex + (i * 2); // 画像列のインデックス
@@ -894,7 +895,7 @@ function createImages() {
 
       // --- 4. 指定された回数だけAPIを呼び出し、画像をDriveに保存 & シートに挿入 --- ★ ここから修正 ★
       for (let j = 0; j < numberOfGenerations; j++) {
-        const colNumber = existingImageCols.length / 2 + j + 1;
+        const colNumber = existingImageCols.length + j + 1; // 既存の画像列数 + 新規インデックス
         const imageHeaderName = colNumber === 1 ? '生成画像' : `生成画像_${colNumber}`;
         const currentImageColIndex = newHeaderIndices[imageHeaderName]; // 画像を挿入する列インデックス
 

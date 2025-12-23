@@ -1677,12 +1677,13 @@ function createImages_SETUP() {
     }
 
     // --- 2b. ヘッダー列を準備 ---
-    const existingImageCols = header.filter(h => h.toString().startsWith('生成画像'));
+    // 「生成画像」で始まり「URL」を含まない列のみカウント（生成画像, 生成画像_2, 生成画像_3...）
+    const existingImageCols = header.filter(h => h.toString().startsWith('生成画像') && !h.toString().includes('URL'));
     const firstNewColIndex = header.length;
     let newHeaders = [];
 
     for (let i = 0; i < numberOfGenerations; i++) {
-      const colNumber = existingImageCols.length / 2 + i + 1;
+      const colNumber = existingImageCols.length + i + 1; // 既存の画像列数 + 新規インデックス
       const imageHeaderName = colNumber === 1 ? '生成画像' : `生成画像_${colNumber}`;
       newHeaders.push(imageHeaderName);
     }
