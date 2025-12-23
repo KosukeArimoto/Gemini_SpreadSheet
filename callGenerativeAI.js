@@ -168,16 +168,17 @@ function setOpenAiCredentials() {
 
 
 /**
- * [新規] OpenAI API (DALL·E 3)と通信し、画像（Base64）を生成する関数
+ * ===================================================================
+ * 画像生成 API 関連
+ * ===================================================================
+ */
+
+/**
+ * 画像生成のメイン関数（モデル名に応じてAPIを切り替え）
  * @param {string} prompt - 画像生成用のプロンプト
  * @return {string} - Base64エンコードされた画像データ
  */
-function callGPTApi_(prompt) {
-  const apiKey = PropertiesService.getUserProperties().getProperty('OPENAI_API_KEY');
-  if (!apiKey) {
-    throw new Error('OpenAI APIキーが設定されていません。「AI連携ツール」メニューから設定してください。');
-  }
-
+function generateImage_(prompt) {
   // configシートからモデル名を取得
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const configSheet = ss.getSheetByName('config');
@@ -185,16 +186,46 @@ function callGPTApi_(prompt) {
     throw new Error('設定シート「config」が見つかりません。');
   }
   const model = configSheet.getRange('C7').getValue() || "gpt-image-1";
-  console.log("model is "+model)
+  console.log("Image model is " + model);
+
+  // モデル名に応じてAPIを切り替え
+  if (model.includes('imagen')) {
+    // Gemini Imagen API
+    return generateImageWithGemini_(prompt, model);
+  } else {
+    // OpenAI API (gpt-image-1, dall-e-3 など)
+    return generateImageWithOpenAI_(prompt, model);
+  }
+}
+
+/**
+ * 後方互換性のためのエイリアス（既存コードからの呼び出しに対応）
+ * @param {string} prompt - 画像生成用のプロンプト
+ * @return {string} - Base64エンコードされた画像データ
+ */
+function callGPTApi_(prompt) {
+  return generateImage_(prompt);
+}
+
+/**
+ * OpenAI API と通信し、画像（Base64）を生成する関数
+ * @param {string} prompt - 画像生成用のプロンプト
+ * @param {string} model - 使用するモデル名 (gpt-image-1, dall-e-3 など)
+ * @return {string} - Base64エンコードされた画像データ
+ */
+function generateImageWithOpenAI_(prompt, model) {
+  const apiKey = PropertiesService.getUserProperties().getProperty('OPENAI_API_KEY');
+  if (!apiKey) {
+    throw new Error('OpenAI APIキーが設定されていません。「AI連携ツール」メニューから設定してください。');
+  }
 
   const url = "https://api.openai.com/v1/images/generations";
 
   const payload = {
-    "model": model, // configシートC7セルから取得
+    "model": model,
     "prompt": prompt,
     "n": 1,
     "size": "1536x1024", // 横長のイラスト (16:9に近い)
-    // "response_format": "b64_json" // 画像をBase64で受け取る
   };
 
   const options = {
@@ -207,8 +238,6 @@ function callGPTApi_(prompt) {
     'muteHttpExceptions': true
   };
 
-  // const response = UrlFetchApp.fetch(url, options);
-  // 堅牢にするため置き換え
   const response = robustFetch_(url, options);
   const responseJson = JSON.parse(response.getContentText());
 
@@ -216,6 +245,70 @@ function callGPTApi_(prompt) {
     return responseJson.data[0].b64_json;
   } else {
     throw new Error("OpenAI APIから画像が返されませんでした。");
+  }
+}
+
+/**
+ * Gemini Imagen API と通信し、画像（Base64）を生成する関数
+ * @param {string} prompt - 画像生成用のプロンプト
+ * @param {string} model - 使用するモデル名 (imagen-3.0-generate-001 など)
+ * @return {string} - Base64エンコードされた画像データ
+ */
+function generateImageWithGemini_(prompt, model) {
+  const userProperties = PropertiesService.getUserProperties();
+  const projectId = userProperties.getProperty('GEMINI_PROJECT_ID');
+  if (!projectId) {
+    throw new Error('Gemini認証情報が設定されていません。「AI連携ツール」メニューから設定してください。');
+  }
+
+  const geminiService = getGeminiService();
+  const accessToken = geminiService.getAccessToken();
+
+  // configシートからリージョンを取得
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const configSheet = ss.getSheetByName('config');
+  const region = configSheet.getRange('C1').getValue() || "us-central1";
+
+  // Vertex AI Imagen API エンドポイント
+  const endpoint = region === "global"
+    ? "https://aiplatform.googleapis.com"
+    : `https://${region}-aiplatform.googleapis.com`;
+  const url = `${endpoint}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:predict`;
+
+  const payload = {
+    "instances": [
+      {
+        "prompt": prompt
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "aspectRatio": "16:9",
+      "outputOptions": {
+        "mimeType": "image/png"
+      }
+    }
+  };
+
+  const options = {
+    'method': 'post',
+    'contentType': 'application/json',
+    'headers': {
+      'Authorization': 'Bearer ' + accessToken
+    },
+    'payload': JSON.stringify(payload),
+    'muteHttpExceptions': true
+  };
+
+  const response = robustFetch_(url, options);
+  const responseJson = JSON.parse(response.getContentText());
+
+  if (responseJson.predictions && responseJson.predictions.length > 0) {
+    // Imagen APIはbytesBase64Encodedフィールドで返す
+    return responseJson.predictions[0].bytesBase64Encoded;
+  } else {
+    const errorMsg = responseJson.error ? responseJson.error.message : response.getContentText();
+    throw new Error("Gemini Imagen APIから画像が返されませんでした: " + errorMsg);
   }
 }
 
