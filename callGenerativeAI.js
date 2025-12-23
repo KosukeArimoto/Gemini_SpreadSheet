@@ -241,6 +241,11 @@ function generateImageWithOpenAI_(prompt, model) {
   const response = robustFetch_(url, options);
   const responseJson = JSON.parse(response.getContentText());
 
+  // 実際に使用されたモデルをログ出力（OpenAIはmodelフィールドで返す）
+  if (responseJson.model) {
+    console.log("Actual image model used: " + responseJson.model);
+  }
+
   if (responseJson.data && responseJson.data.length > 0) {
     return responseJson.data[0].b64_json;
   } else {
@@ -303,6 +308,11 @@ function generateImageWithGemini_(prompt, model) {
   const response = robustFetch_(url, options);
   const responseJson = JSON.parse(response.getContentText());
 
+  // 実際に使用されたモデルバージョンをログ出力
+  if (responseJson.modelVersion) {
+    console.log("Actual image model version used: " + responseJson.modelVersion);
+  }
+
   if (responseJson.predictions && responseJson.predictions.length > 0) {
     // Imagen APIはbytesBase64Encodedフィールドで返す
     return responseJson.predictions[0].bytesBase64Encoded;
@@ -351,6 +361,11 @@ function callGeminiApi(prompt, projectId, accessToken) {
   // API通信を堅牢にするため修正
   const response = robustFetch_(url, options);
   const responseJson = JSON.parse(response.getContentText());
+
+  // 実際に使用されたモデルバージョンをログ出力
+  if (responseJson.modelVersion) {
+    console.log("Actual model version used: " + responseJson.modelVersion);
+  }
 
   if (responseJson.candidates && responseJson.candidates.length > 0) {
     return responseJson.candidates[0].content.parts[0].text;
