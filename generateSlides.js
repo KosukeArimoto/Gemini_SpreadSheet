@@ -1427,16 +1427,18 @@ function splitPresentationByCategory() {
       parentFolder = DriveApp.getRootFolder();
     }
 
-    const outputFolderName = `分割版_${sourcePresentationName}`;
-    let outputFolder;
-    const existingFolders = parentFolder.getFoldersByName(outputFolderName);
-    if (existingFolders.hasNext()) {
-      outputFolder = existingFolders.next();
-      Logger.log(`既存フォルダを使用: ${outputFolderName}`);
-    } else {
-      outputFolder = parentFolder.createFolder(outputFolderName);
-      Logger.log(`新規フォルダ作成: ${outputFolderName}`);
+    const baseFolderName = `分割版_${sourcePresentationName}`;
+    let outputFolderName = baseFolderName;
+    let suffix = 1;
+
+    // 既存フォルダがある場合はサフィックスを追加
+    while (parentFolder.getFoldersByName(outputFolderName).hasNext()) {
+      suffix++;
+      outputFolderName = `${baseFolderName}_${suffix}`;
     }
+
+    const outputFolder = parentFolder.createFolder(outputFolderName);
+    Logger.log(`新規フォルダ作成: ${outputFolderName}`);
 
     // --- 4. スライドをカテゴリでグループ化 ---
     const slideGroups = _groupSlidesByCategory(sourceSlides, categoryTitles);
