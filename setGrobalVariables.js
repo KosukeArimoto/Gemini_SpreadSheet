@@ -47,6 +47,9 @@ const SLIDE_TEMPLATE_MASTER_SHEET_NAME = "Slide Template Master"; // スライ�
 const FREE_PROMPT_WORK_LIST_SHEET_NAME = "_Free Prompt作業リスト"; // Free Prompt作業リスト
 const FREE_PROMPT_OUTPUT_SHEET_NAME = "Free Prompt_結果"; // Free Prompt結果シート
 
+// スライド分割用
+const SLIDE_SPLIT_WORK_LIST_SHEET_NAME = "_スライド分割作業リスト"; // スライド分割の作業リストを管理するシート
+
 // ステータスの定義
 const STATUS_EMPTY = "";
 const STATUS_PROCESSING = "処理中";

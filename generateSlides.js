@@ -1382,12 +1382,18 @@ function _getSlideTemplateConfig(templateId) {
  * [メイン関数] 既存のスライドをカテゴリ別に分割して出力
  * 「スライド分割」シートから設定を読み込み、代替テキストタイトルに基づいて分割
  */
-function splitPresentationByCategory() {
+/**
+ * [SETUP] スライド分割のセットアップを行う関数
+ * 1. 設定を読み込み、スライドをカテゴリでグループ化
+ * 2. 作業リスト（_スライド分割作業リスト）シートを作成
+ * 3. 出力フォルダを作成
+ */
+function splitPresentationByCategory_SETUP() {
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   try {
-    ss.toast('スライド分割を開始します...', '処理中', -1);
+    ss.toast('スライド分割のセットアップを開始します...', '開始', 10);
 
     // --- 1. 設定読み込み ---
     const configSheet = ss.getSheetByName('スライド分割');
@@ -1438,6 +1444,7 @@ function splitPresentationByCategory() {
     }
 
     const outputFolder = parentFolder.createFolder(outputFolderName);
+    const outputFolderId = outputFolder.getId();
     Logger.log(`新規フォルダ作成: ${outputFolderName}`);
 
     // --- 4. スライドをカテゴリでグループ化 ---
@@ -1449,36 +1456,199 @@ function splitPresentationByCategory() {
 
     Logger.log(`グループ数: ${Object.keys(slideGroups).length}`);
 
-    // --- 5. グループごとにスライドを作成 ---
-    const baseFileName = '保全_(赤)_カルテ';
-    let createdCount = 0;
-
-    for (const categoryKey in slideGroups) {
-      const slideIndices = slideGroups[categoryKey];
-      ss.toast(`${categoryKey} を作成中... (${slideIndices.length}枚)`, '処理中', -1);
-
-      _createSplitPresentation(
-        sourcePresentation,
-        slideIndices,
-        categoryKey,
-        outputFolder,
-        baseFileName
-      );
-      createdCount++;
+    // --- 5. 作業シート作成 & タスク書き込み ---
+    let workSheet = ss.getSheetByName(SLIDE_SPLIT_WORK_LIST_SHEET_NAME);
+    if (workSheet) {
+      workSheet.clear();
+    } else {
+      workSheet = ss.insertSheet(SLIDE_SPLIT_WORK_LIST_SHEET_NAME, 0);
     }
 
-    ss.toast('', '', 1); // トースト消去
-    ui.alert(
-      '分割完了',
-      `${createdCount}個のスライドファイルを作成しました。\n\n出力先: ${outputFolderName}`,
-      ui.ButtonSet.OK
-    );
+    const workHeader = ["CategoryKey", "SlideIndices (JSON)", "Status"];
+    workSheet.getRange(1, 1, 1, 3).setValues([workHeader]).setFontWeight('bold');
+
+    // E1, F1, G1 に実行時に必要な情報を保存
+    workSheet.getRange("E1").setValue(sourceSlideId);           // 元スライドID
+    workSheet.getRange("F1").setValue(outputFolderId);          // 出力フォルダID
+    workSheet.getRange("G1").setValue('保全_(赤)_カルテ');       // ベースファイル名
+
+    const workListData = [];
+    for (const categoryKey in slideGroups) {
+      workListData.push([
+        categoryKey,
+        JSON.stringify(slideGroups[categoryKey]), // スライドインデックスの配列をJSON文字列として保存
+        STATUS_EMPTY
+      ]);
+    }
+
+    if (workListData.length > 0) {
+      workSheet.getRange(2, 1, workListData.length, 3).setValues(workListData);
+      workSheet.autoResizeColumns(1, 3);
+    }
+
+    // タブの色をグレーに設定
+    workSheet.setTabColor('#999999');
+
+    ss.toast('セットアップが完了しました。', '完了', 5);
+    _showSetupCompletionDialog({
+      workSheetName: SLIDE_SPLIT_WORK_LIST_SHEET_NAME,
+      menuItemName: '🌡️ 東海理化用 > 3-2 スライド分割（実行）',
+      processFunctionName: 'splitPresentationByCategory_PROCESS',
+      useManualExecution: true
+    });
 
   } catch (e) {
     ss.toast('', '', 1);
     Logger.log(`エラー: ${e.message}\n${e.stack}`);
-    ui.alert(`スライド分割エラー:\n${e.message}`);
+    ui.alert(`セットアップエラー:\n${e.message}`);
   }
+}
+
+/**
+ * [PROCESS] スライド分割のバッチ処理を行うワーカー関数
+ * 1. _スライド分割作業リスト シートから「未処理」のタスクを取得
+ * 2. 時間の許す限りスライド分割を実行
+ */
+function splitPresentationByCategory_PROCESS() {
+  const startTime = new Date().getTime();
+  const taskExecutionTimes = [];
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const workSheet = ss.getSheetByName(SLIDE_SPLIT_WORK_LIST_SHEET_NAME);
+
+  if (!workSheet || workSheet.getLastRow() < 2) {
+    Logger.log("作業シートが見つからないか、タスクがありません。処理を終了します。");
+    return;
+  }
+
+  _showProgress('スライド分割処理を開始します...', '📑 スライド分割', 3);
+
+  // --- 1. 共通設定を作業シートから取得 ---
+  const sourceSlideId = workSheet.getRange("E1").getValue();
+  const outputFolderId = workSheet.getRange("F1").getValue();
+  const baseFileName = workSheet.getRange("G1").getValue();
+
+  if (!sourceSlideId || !outputFolderId) {
+    Logger.log("作業シート E1 または F1 に設定情報がありません。SETUPを先に実行してください。");
+    return;
+  }
+
+  let sourcePresentation;
+  let outputFolder;
+
+  try {
+    sourcePresentation = SlidesApp.openById(sourceSlideId);
+    outputFolder = DriveApp.getFolderById(outputFolderId);
+  } catch (e) {
+    Logger.log(`必須リソースが開けません: ${e}`);
+    return;
+  }
+
+  // --- 2. 未処理のタスクを検索 ---
+  const workRange = workSheet.getRange(2, 1, workSheet.getLastRow() - 1, 3);
+  const workValues = workRange.getValues();
+
+  let processedCountInThisRun = 0;
+
+  // --- 3. バッチ処理ループ ---
+  for (let i = 0; i < workValues.length; i++) {
+    const currentStatus = workValues[i][2]; // C列: Status
+
+    if (currentStatus === STATUS_EMPTY) {
+      // 動的タイムアウトチェック
+      if (!_shouldContinueProcessing(startTime, taskExecutionTimes)) {
+        Logger.log(`次のタスクで30分を超える可能性があるため、処理を中断します。`);
+        break;
+      }
+
+      const taskStartTime = new Date().getTime();
+      const sheetRow = i + 2; // 作業シートの行番号
+      const categoryKey = workValues[i][0];
+      const slideIndices = JSON.parse(workValues[i][1]);
+
+      try {
+        // ステータスを「処理中」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_PROCESSING);
+
+        Logger.log(`[${processedCountInThisRun + 1}] ${categoryKey} を作成中... (${slideIndices.length}枚)`);
+
+        _createSplitPresentation(
+          sourcePresentation,
+          slideIndices,
+          categoryKey,
+          outputFolder,
+          baseFileName
+        );
+
+        // ステータスを「完了」に更新
+        workSheet.getRange(sheetRow, 3).setValue(STATUS_DONE);
+        processedCountInThisRun++;
+
+        // このタスクの実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+        Logger.log(`  タスク実行時間: ${(taskDuration / 1000).toFixed(2)}秒`);
+
+        // 5件ごとに進捗を表示
+        if (processedCountInThisRun % 5 === 0) {
+          const totalTasks = workValues.length;
+          _showProgress(
+            `${processedCountInThisRun} / ${totalTasks} 件完了`,
+            '📑 スライド分割中',
+            2
+          );
+        }
+
+        SpreadsheetApp.flush();
+
+      } catch (e) {
+        Logger.log(`タスク "${categoryKey}" (行 ${sheetRow}) の処理中にエラー: ${e.message}`);
+        workSheet.getRange(sheetRow, 3).setValue(`${STATUS_ERROR}: ${e.message.substring(0, 200)}`);
+
+        // エラーの場合も実行時間を記録
+        const taskEndTime = new Date().getTime();
+        const taskDuration = taskEndTime - taskStartTime;
+        taskExecutionTimes.push(taskDuration);
+      }
+    }
+  }
+
+  Logger.log(`今回の実行で ${processedCountInThisRun} 件のタスクを処理しました。`);
+  SpreadsheetApp.flush();
+
+  // --- 4. 完了チェック ---
+  const lastRow = workSheet.getLastRow();
+  let remainingTasks = 0;
+
+  if (lastRow >= 2) {
+    const newStatusValues = workSheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    remainingTasks = newStatusValues.filter(
+      row => row[0] === STATUS_EMPTY || row[0] === STATUS_PROCESSING
+    ).length;
+  }
+
+  if (remainingTasks === 0) {
+    _showProgress(
+      `すべてのスライド分割が完了しました！（合計 ${processedCountInThisRun} 件）`,
+      '✅ 完了',
+      10
+    );
+  } else {
+    _showProgress(
+      `今回 ${processedCountInThisRun} 件処理。残り ${remainingTasks} 件`,
+      '⏸️ 一時停止',
+      5
+    );
+  }
+}
+
+/**
+ * [後方互換] 旧関数名のエイリアス（直接実行用）
+ * ※ SETUP/PROCESS方式を推奨
+ */
+function splitPresentationByCategory() {
+  splitPresentationByCategory_SETUP();
 }
 
 /**

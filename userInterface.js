@@ -66,7 +66,8 @@ function onOpen() {
       .addItem('2-2 スライド生成(まとめ一覧)（実行）', 'createSlides_PROCESS')
       .addSeparator()
       // --- スライド分割 ---
-      .addItem('3-1 スライド分割（カテゴリ別）', 'splitPresentationByCategory'))
+      .addItem('3-1 スライド分割（セットアップ）', 'splitPresentationByCategory_SETUP')
+      .addItem('3-2 スライド分割（実行）', 'splitPresentationByCategory_PROCESS'))
 
     .addToUi();
 }
