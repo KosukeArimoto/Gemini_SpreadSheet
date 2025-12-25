@@ -1644,14 +1644,6 @@ function splitPresentationByCategory_PROCESS() {
 }
 
 /**
- * [後方互換] 旧関数名のエイリアス（直接実行用）
- * ※ SETUP/PROCESS方式を推奨
- */
-function splitPresentationByCategory() {
-  splitPresentationByCategory_SETUP();
-}
-
-/**
  * [ヘルパー] スライドから指定された代替テキストタイトルを持つテキストボックスの内容を取得
  * @param {GoogleAppsScript.Slides.Slide} slide - 対象スライド
  * @param {string[]} altTextTitles - 検索する代替テキストタイトルの配列
