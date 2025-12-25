@@ -63,7 +63,10 @@ function onOpen() {
       .addSubMenu(SpreadsheetApp.getUi().createMenu('2-1 スライド生成(まとめ一覧)')
         .addItem('統合モード（セットアップ）', 'createSlideSummaryTR_Combined_SETUP')
         .addItem('分割モード（セットアップ）', 'createSlideSummaryTR_Split_SETUP'))
-      .addItem('2-2 スライド生成(まとめ一覧)（実行）', 'createSlides_PROCESS'))
+      .addItem('2-2 スライド生成(まとめ一覧)（実行）', 'createSlides_PROCESS')
+      .addSeparator()
+      // --- スライド分割 ---
+      .addItem('3-1 スライド分割（カテゴリ別）', 'splitPresentationByCategory'))
 
     .addToUi();
 }

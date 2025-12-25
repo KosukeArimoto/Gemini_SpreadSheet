@@ -1372,3 +1372,214 @@ function _getSlideTemplateConfig(templateId) {
 
   return null; // 見つからない場合
 }
+
+
+// ===================================================================
+// スライド分割機能
+// ===================================================================
+
+/**
+ * [メイン関数] 既存のスライドをカテゴリ別に分割して出力
+ * 「スライド分割」シートから設定を読み込み、代替テキストタイトルに基づいて分割
+ */
+function splitPresentationByCategory() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  try {
+    ss.toast('スライド分割を開始します...', '処理中', -1);
+
+    // --- 1. 設定読み込み ---
+    const configSheet = ss.getSheetByName('スライド分割');
+    if (!configSheet) {
+      throw new Error('「スライド分割」シートが見つかりません。');
+    }
+
+    const sourceSlideId = configSheet.getRange('C7').getValue();
+    const category1 = configSheet.getRange('C9').getValue();
+    const category2 = configSheet.getRange('C10').getValue();
+    const category3 = configSheet.getRange('C11').getValue();
+
+    if (!sourceSlideId) {
+      throw new Error('C7セルに分割対象のスライドIDを入力してください。');
+    }
+    if (!category1 || !category2 || !category3) {
+      throw new Error('C9, C10, C11セルに全てのカテゴリ（代替テキストタイトル）を入力してください。');
+    }
+
+    const categoryTitles = [category1, category2, category3];
+    Logger.log(`カテゴリ設定: ${categoryTitles.join(', ')}`);
+
+    // --- 2. 元スライドを開く ---
+    const sourcePresentation = SlidesApp.openById(sourceSlideId);
+    const sourceSlides = sourcePresentation.getSlides();
+    const sourcePresentationName = sourcePresentation.getName();
+
+    Logger.log(`元スライド: ${sourcePresentationName} (${sourceSlides.length}枚)`);
+
+    // --- 3. 出力フォルダ作成 ---
+    const sourceFile = DriveApp.getFileById(sourceSlideId);
+    const parentFolders = sourceFile.getParents();
+    let parentFolder;
+    if (parentFolders.hasNext()) {
+      parentFolder = parentFolders.next();
+    } else {
+      parentFolder = DriveApp.getRootFolder();
+    }
+
+    const outputFolderName = `分割版_${sourcePresentationName}`;
+    let outputFolder;
+    const existingFolders = parentFolder.getFoldersByName(outputFolderName);
+    if (existingFolders.hasNext()) {
+      outputFolder = existingFolders.next();
+      Logger.log(`既存フォルダを使用: ${outputFolderName}`);
+    } else {
+      outputFolder = parentFolder.createFolder(outputFolderName);
+      Logger.log(`新規フォルダ作成: ${outputFolderName}`);
+    }
+
+    // --- 4. スライドをカテゴリでグループ化 ---
+    const slideGroups = _groupSlidesByCategory(sourceSlides, categoryTitles);
+
+    if (Object.keys(slideGroups).length === 0) {
+      throw new Error('カテゴリに該当するスライドが見つかりませんでした。');
+    }
+
+    Logger.log(`グループ数: ${Object.keys(slideGroups).length}`);
+
+    // --- 5. グループごとにスライドを作成 ---
+    const baseFileName = '保全_(赤)_カルテ';
+    let createdCount = 0;
+
+    for (const categoryKey in slideGroups) {
+      const slideIndices = slideGroups[categoryKey];
+      ss.toast(`${categoryKey} を作成中... (${slideIndices.length}枚)`, '処理中', -1);
+
+      _createSplitPresentation(
+        sourcePresentation,
+        slideIndices,
+        categoryKey,
+        outputFolder,
+        baseFileName
+      );
+      createdCount++;
+    }
+
+    ss.toast('', '', 1); // トースト消去
+    ui.alert(
+      '分割完了',
+      `${createdCount}個のスライドファイルを作成しました。\n\n出力先: ${outputFolderName}`,
+      ui.ButtonSet.OK
+    );
+
+  } catch (e) {
+    ss.toast('', '', 1);
+    Logger.log(`エラー: ${e.message}\n${e.stack}`);
+    ui.alert(`スライド分割エラー:\n${e.message}`);
+  }
+}
+
+/**
+ * [ヘルパー] スライドから該当するカテゴリを取得
+ * @param {GoogleAppsScript.Slides.Slide} slide - 対象スライド
+ * @param {string[]} categoryTitles - カテゴリとして使用する代替テキストタイトルの配列
+ * @return {string[]} - 該当するカテゴリの配列
+ */
+function _getSlideCategories(slide, categoryTitles) {
+  const matchedCategories = [];
+
+  // スライド内の全ページ要素を取得
+  const pageElements = slide.getPageElements();
+
+  for (const element of pageElements) {
+    // 代替テキストのタイトルを取得
+    const altTitle = element.getTitle();
+
+    if (altTitle) {
+      for (const category of categoryTitles) {
+        // カテゴリと一致し、まだ追加されていない場合
+        if (altTitle === category && !matchedCategories.includes(category)) {
+          matchedCategories.push(category);
+        }
+      }
+    }
+  }
+
+  return matchedCategories;
+}
+
+/**
+ * [ヘルパー] スライドをカテゴリ組み合わせでグループ化
+ * @param {GoogleAppsScript.Slides.Slide[]} slides - スライドの配列
+ * @param {string[]} categoryTitles - カテゴリとして使用する代替テキストタイトルの配列
+ * @return {Object} - カテゴリキーをキー、スライドインデックス配列を値とするオブジェクト
+ */
+function _groupSlidesByCategory(slides, categoryTitles) {
+  const groups = {};
+
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    const categories = _getSlideCategories(slide, categoryTitles);
+
+    // カテゴリに該当しないスライドは除外
+    if (categories.length === 0) {
+      Logger.log(`スライド ${i + 1}: カテゴリなし（除外）`);
+      continue;
+    }
+
+    // カテゴリを元の順序でソート（categoryTitlesの順序を維持）
+    categories.sort((a, b) => categoryTitles.indexOf(a) - categoryTitles.indexOf(b));
+
+    // カテゴリ組み合わせをキーとして使用
+    const categoryKey = categories.join('_');
+
+    Logger.log(`スライド ${i + 1}: ${categoryKey}`);
+
+    if (!groups[categoryKey]) {
+      groups[categoryKey] = [];
+    }
+    groups[categoryKey].push(i);
+  }
+
+  return groups;
+}
+
+/**
+ * [ヘルパー] 分割されたプレゼンテーションを作成
+ * @param {GoogleAppsScript.Slides.Presentation} sourcePresentation - 元のプレゼンテーション
+ * @param {number[]} slideIndices - コピーするスライドのインデックス配列
+ * @param {string} categoryKey - カテゴリキー（ファイル名に使用）
+ * @param {GoogleAppsScript.Drive.Folder} outputFolder - 出力先フォルダ
+ * @param {string} baseFileName - ベースファイル名
+ */
+function _createSplitPresentation(sourcePresentation, slideIndices, categoryKey, outputFolder, baseFileName) {
+  // ファイル名作成
+  const fileName = `${baseFileName}_${categoryKey}`;
+
+  // 新規プレゼンテーション作成
+  const newPresentation = SlidesApp.create(fileName);
+  const newPresentationId = newPresentation.getId();
+
+  // 元スライドから指定されたスライドをコピー
+  const sourceSlides = sourcePresentation.getSlides();
+
+  for (const index of slideIndices) {
+    const sourceSlide = sourceSlides[index];
+    newPresentation.appendSlide(sourceSlide);
+  }
+
+  // デフォルトの空スライドを削除（最初のスライド）
+  const newSlides = newPresentation.getSlides();
+  if (newSlides.length > slideIndices.length) {
+    newSlides[0].remove();
+  }
+
+  // 保存して閉じる
+  newPresentation.saveAndClose();
+
+  // 出力フォルダに移動
+  const newFile = DriveApp.getFileById(newPresentationId);
+  newFile.moveTo(outputFolder);
+
+  Logger.log(`作成完了: ${fileName} (${slideIndices.length}枚)`);
+}
