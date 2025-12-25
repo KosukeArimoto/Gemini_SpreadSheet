@@ -115,7 +115,7 @@ function generateRowImages_SETUP() {
     // 完了メッセージ
     _showSetupCompletionDialog({
       workSheetName: IMAGE_WORK_LIST_SHEET_NAME,
-      menuItemName: '🌡️ 東海理科用 > 1-4 行ごとの画像生成(実行)',
+      menuItemName: '🌡️ 東海理化用 > 1-4 行ごとの画像生成(実行)',
       processFunctionName: 'generateRowImages_PROCESS',
       useManualExecution: true
     });

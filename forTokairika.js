@@ -101,7 +101,7 @@ function generateKnowledge_SETUP() {
     ss.toast('セットアップが完了しました。', '完了', 5);
     _showSetupCompletionDialog({
       workSheetName: KNOWLEDGE_WORK_LIST_SHEET_NAME,
-      menuItemName: '🌡️ 東海理科用 > 1-2 詳細情報生成（実行）',
+      menuItemName: '🌡️ 東海理化用 > 1-2 詳細情報生成（実行）',
       processFunctionName: 'generateKnowledge_PROCESS',
       useManualExecution: true
     });

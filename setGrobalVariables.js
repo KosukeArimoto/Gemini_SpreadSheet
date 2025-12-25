@@ -23,7 +23,7 @@ const imageSaveDir_pos = variablesSetSheet.getRange('D18').getValue();
 const sep = parseInt(configSheet.getRange('C4').getValue(), 10); // 分割数を取得
 
 
-// for東海理科
+// for東海理化
 const tokaiPromptSheet = ss.getSheetByName('カテゴリごとに知見作成');
 
 
@@ -35,7 +35,7 @@ const tokaiPromptSheet = ss.getSheetByName('カテゴリごとに知見作成');
 const knowledgeConfigSheet = ss.getSheetByName('カテゴリごとに知見作成'); // 新しい設定シート
 const inputSheetName = knowledgeConfigSheet.getRange('C6').getValue(); // 入力シート名をC6から取得
 
-// 詳細情報生成用（東海理科）
+// 詳細情報生成用（東海理化）
 const KNOWLEDGE_WORK_LIST_SHEET_NAME = "_詳細情報生成作業リスト"; // 詳細情報生成の作業リスト
 const OUTPUT_SHEET_NAME = `保全ナレッジ_結果`  // 最終的な結果を追記していくシート
 

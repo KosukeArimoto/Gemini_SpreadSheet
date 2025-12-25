@@ -225,7 +225,7 @@ function _createSlideDetailTR_SETUP_Internal(isSplitMode) {
 
     _showSetupCompletionDialog({
       workSheetName: WORK_LIST_SHEET_NAME,
-      menuItemName: `🌡️ 東海理科用 > 1-6 スライド生成(詳細情報)（実行）`,
+      menuItemName: `🌡️ 東海理化用 > 1-6 スライド生成(詳細情報)（実行）`,
       processFunctionName: 'createSlides_PROCESS',
       useManualExecution: true
     });
@@ -380,7 +380,7 @@ function _createSlideSummaryTR_SETUP_Internal(isSplitMode) {
 
     _showSetupCompletionDialog({
       workSheetName: WORK_LIST_SHEET_NAME,
-      menuItemName: '🌡️ 東海理科用 > 2-2 スライド生成(まとめ一覧)（実行）',
+      menuItemName: '🌡️ 東海理化用 > 2-2 スライド生成(まとめ一覧)（実行）',
       processFunctionName: 'createSlides_PROCESS',
       useManualExecution: true
     });

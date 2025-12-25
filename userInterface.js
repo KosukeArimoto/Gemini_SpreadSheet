@@ -46,8 +46,8 @@ function onOpen() {
       .addItem('⑧-2 Free Prompt (実行)', 'freePrompt_PROCESS'))
     .addSeparator()
 
-    // --- 東海理科用ツール ---
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('🌡️ 東海理科用')
+    // --- 東海理化用ツール ---
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('🌡️ 東海理化用')
       .addItem('1-1 詳細情報生成（セットアップ）', 'generateKnowledge_SETUP')
       .addItem('1-2 詳細情報生成（実行）', 'generateKnowledge_PROCESS')
       .addItem('1-3 行ごとの画像生成(セットアップ)', 'generateRowImages_SETUP')
