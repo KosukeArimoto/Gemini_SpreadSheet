@@ -1480,13 +1480,13 @@ function splitPresentationByCategory() {
 }
 
 /**
- * [ヘルパー] スライドから該当するカテゴリを取得
+ * [ヘルパー] スライドから指定された代替テキストタイトルを持つテキストボックスの内容を取得
  * @param {GoogleAppsScript.Slides.Slide} slide - 対象スライド
- * @param {string[]} categoryTitles - カテゴリとして使用する代替テキストタイトルの配列
- * @return {string[]} - 該当するカテゴリの配列
+ * @param {string[]} altTextTitles - 検索する代替テキストタイトルの配列
+ * @return {Object} - 代替テキストタイトルをキー、テキスト内容を値とするオブジェクト
  */
-function _getSlideCategories(slide, categoryTitles) {
-  const matchedCategories = [];
+function _getSlideTextByAltTitle(slide, altTextTitles) {
+  const result = {};
 
   // スライド内の全ページ要素を取得
   const pageElements = slide.getPageElements();
@@ -1495,43 +1495,61 @@ function _getSlideCategories(slide, categoryTitles) {
     // 代替テキストのタイトルを取得
     const altTitle = element.getTitle();
 
-    if (altTitle) {
-      for (const category of categoryTitles) {
-        // カテゴリと一致し、まだ追加されていない場合
-        if (altTitle === category && !matchedCategories.includes(category)) {
-          matchedCategories.push(category);
+    if (altTitle && altTextTitles.includes(altTitle)) {
+      // Shape（図形/テキストボックス）の場合のみテキストを取得
+      if (element.getPageElementType() === SlidesApp.PageElementType.SHAPE) {
+        const shape = element.asShape();
+        const textRange = shape.getText();
+        if (textRange) {
+          const text = textRange.asString().trim();
+          result[altTitle] = text;
         }
       }
     }
   }
 
-  return matchedCategories;
+  return result;
 }
 
 /**
- * [ヘルパー] スライドをカテゴリ組み合わせでグループ化
+ * [ヘルパー] スライドをテキストボックスの内容でグループ化
  * @param {GoogleAppsScript.Slides.Slide[]} slides - スライドの配列
- * @param {string[]} categoryTitles - カテゴリとして使用する代替テキストタイトルの配列
- * @return {Object} - カテゴリキーをキー、スライドインデックス配列を値とするオブジェクト
+ * @param {string[]} altTextTitles - 検索する代替テキストタイトルの配列
+ * @return {Object} - グループキーをキー、スライドインデックス配列を値とするオブジェクト
  */
-function _groupSlidesByCategory(slides, categoryTitles) {
+function _groupSlidesByCategory(slides, altTextTitles) {
   const groups = {};
 
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
-    const categories = _getSlideCategories(slide, categoryTitles);
+    const textsByAltTitle = _getSlideTextByAltTitle(slide, altTextTitles);
 
-    // カテゴリに該当しないスライドは除外
-    if (categories.length === 0) {
-      Logger.log(`スライド ${i + 1}: カテゴリなし（除外）`);
+    // 3つ全ての代替テキストタイトルに対応するテキストが見つからない場合は除外
+    const foundCount = Object.keys(textsByAltTitle).length;
+    if (foundCount === 0) {
+      Logger.log(`スライド ${i + 1}: 対象テキストボックスなし（除外）`);
       continue;
     }
 
-    // カテゴリを元の順序でソート（categoryTitlesの順序を維持）
-    categories.sort((a, b) => categoryTitles.indexOf(a) - categoryTitles.indexOf(b));
+    // altTextTitlesの順序でテキスト内容を結合してグループキーを作成
+    const keyParts = [];
+    for (const altTitle of altTextTitles) {
+      if (textsByAltTitle[altTitle]) {
+        // ファイル名に使えない文字を置換
+        const sanitizedText = textsByAltTitle[altTitle]
+          .replace(/[\\/:\*\?"<>\|]/g, '_')  // ファイル名禁止文字
+          .replace(/\n/g, ' ')                // 改行
+          .trim();
+        keyParts.push(sanitizedText);
+      }
+    }
 
-    // カテゴリ組み合わせをキーとして使用
-    const categoryKey = categories.join('_');
+    if (keyParts.length === 0) {
+      Logger.log(`スライド ${i + 1}: テキスト内容が空（除外）`);
+      continue;
+    }
+
+    const categoryKey = keyParts.join('_');
 
     Logger.log(`スライド ${i + 1}: ${categoryKey}`);
 
